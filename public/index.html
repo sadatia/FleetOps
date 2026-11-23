@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FleetOps — Heavy Vehicle Reservation System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">FO</div>
+        <div class="brand-text"><span class="brand-name">FleetOps</span><span class="brand-sub">Site Vehicle Control</span></div>
+      </div>
+
+      <nav class="nav">
+        <a class="nav-item active" data-view="dashboard"><span class="nav-ico">▣</span> Dashboard</a>
+        <a class="nav-item" data-view="assets"><span class="nav-ico">⚙</span> Vehicles</a>
+        <a class="nav-item" data-view="inspections"><span class="nav-ico">🛡️</span> Safety Inspection</a>
+        <a class="nav-item" data-view="reservations"><span class="nav-ico">▦</span> Reservations</a>
+        <a class="nav-item" data-view="calendar"><span class="nav-ico">▤</span> Calendar</a>
+        <a class="nav-item" data-view="map"><span class="nav-ico">◈</span> Live Map</a>
+        <a class="nav-item" data-view="scan"><span class="nav-ico">⌗</span> Scan Equipment</a>
+        <a class="nav-item" data-view="reports"><span class="nav-ico">📊</span> Usage Reports</a>
+        
+        <!-- PROTECTED TABS (SITE MANAGER ONLY) -->
+        <a class="nav-item" data-view="users" id="nav-users" style="display:none;"><span class="nav-ico">👥</span> User Management</a>
+        <a class="nav-item" data-view="logs" id="nav-logs" style="display:none;"><span class="nav-ico">📋</span> Activity Logs</a>
+      </nav>
+
+      <div class="side-footer">
+        <div class="user-card" style="display: flex; justify-content: space-between; align-items: center; cursor: default; padding: 12px;">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <div class="avatar" style="margin: 0;">--</div>
+            <div>
+              <div class="user-name" style="font-weight: 700; color: var(--text-main);">Loading...</div>
+              <div class="user-role" style="font-size: 11px; color: var(--text-muted);">Authenticating</div>
+            </div>
+          </div>
+          <!-- 🌟 NEW EXPLICIT LOGOUT BUTTON -->
+          <button id="btn-logout" class="btn btn-ghost btn-sm" style="color: var(--red); border: 1px solid #fecaca; background: #fef2f2; padding: 6px 10px; border-radius: 6px; font-size: 14px;" title="Sign Out">
+            🚪
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="view" id="view-dashboard">
+        <header class="topbar">
+          <div><h1>Dashboard</h1><p class="muted">Overview of fleet status for today</p></div>
+          <div class="topbar-actions">
+            <button class="btn btn-ghost" onclick="goTo('assets')">View All Vehicles</button>
+            <button class="btn btn-primary" onclick="openReserveFor(null)">+ New Reservation</button>
+          </div>
+        </header>
+        <div class="stats"><div class="stat"><div class="stat-label">Total Vehicles</div><div class="stat-value" id="kpi-total">0</div></div><div class="stat stat-green"><div class="stat-label">Available Now</div><div class="stat-value" id="kpi-available">0</div></div><div class="stat stat-amber"><div class="stat-label">In Use</div><div class="stat-value" id="kpi-inuse">0</div></div><div class="stat stat-red"><div class="stat-label">Maintenance</div><div class="stat-value" id="kpi-maint">0</div></div></div>
+        <div class="stats" style="margin-top: 16px;"><div class="stat stat-green" style="background:#f8fafc;"><div class="stat-label">Safety: Cleared</div><div class="stat-value" id="dash-safe-cleared" style="color:var(--green);font-size:24px;">0</div></div><div class="stat stat-amber" style="background:#f8fafc;"><div class="stat-label">Safety: Due Soon</div><div class="stat-value" id="dash-safe-soon" style="color:var(--amber);font-size:24px;">0</div></div><div class="stat stat-red" style="background:#f8fafc;"><div class="stat-label">Safety: Expired</div><div class="stat-value" id="dash-safe-expired" style="color:var(--red);font-size:24px;">0</div></div></div>
+        <div class="grid-2" style="margin-top:24px;"><div class="card"><div class="card-head"><h2>Fleet Status</h2></div><div class="canvas-wrap"><canvas id="chart-status"></canvas></div></div><div class="card"><div class="card-head"><h2>Active Reservations</h2><span class="muted small" id="active-count">0 running</span></div><div id="active-list" class="list"></div></div></div>
+      </section>
+
+      <!-- 🌟 UPGRADED: SYSTEM ACTIVITY LOGS -->
+      <section class="view hidden" id="view-logs">
+        <header class="topbar">
+          <div>
+            <h1>System Activity Logs</h1>
+            <p class="muted">Master audit trail of all site operations & data modifications</p>
+          </div>
+          <div class="topbar-actions">
+            <!-- New Search Bar for Logs -->
+            <div class="search">
+              <span>⌕</span>
+              <input id="log-search" type="text" placeholder="Search by user, action, or detail..." style="width: 280px;" />
+            </div>
+          </div>
+        </header>
+        
+        <div class="card table-card">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width: 15%;">Timestamp</th>
+                <th style="width: 20%;">User & Role</th>
+                <th style="width: 15%;">Action</th>
+                <th style="width: 50%;">Detailed Description</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-users">
+        <header class="topbar"><div><h1>User Management</h1></div><div class="topbar-actions"><button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button></div></header>
+        <div class="card table-card"><table class="table"><thead><tr><th>Name</th><th>Email</th><th>Role Level</th><th>Actions</th></tr></thead><tbody id="users-tbody"></tbody></table></div>
+      </section>
+
+      <section class="view hidden" id="view-assets">
+        <header class="topbar"><div><h1>Vehicles</h1></div><div class="topbar-actions" style="display: flex; gap: 12px;"><button class="btn btn-primary" onclick="openAddVehicleModal()" id="btn-add-vehicle" style="display:none;">+ Add Vehicle</button><div class="search"><span>⌕</span><input id="asset-search" type="text" placeholder="Search vehicle..." /></div></div></header>
+        <!-- Updated Filters & View Toggle Bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+          <div class="filters" id="asset-filters" style="margin: 0;">
+            <button class="chip active" data-filter="all">All</button>
+            <button class="chip" data-filter="available">Available</button>
+            <button class="chip" data-filter="in-use">In Use</button>
+            <button class="chip" data-filter="maintenance">Maintenance</button>
+          </div>
+          
+          <!-- View Toggles -->
+          <div style="display:flex; gap:4px; background:#f1f5f9; padding:4px; border-radius:8px; border:1px solid var(--border);">
+            <button id="btn-grid-view" class="btn btn-ghost btn-sm" style="background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.05); color:var(--primary); font-weight:600;">⊞ Grid</button>
+            <button id="btn-list-view" class="btn btn-ghost btn-sm" style="color:var(--text-muted); font-weight:600;">☰ List</button>
+          </div>
+        </div>
+        <div class="asset-grid" id="asset-grid"></div>
+
+
+
+
+
+
+        <div class="asset-grid" id="asset-grid"></div>
+      </section>
+
+      <section class="view hidden" id="view-reservations"><header class="topbar"><div><h1>Reservations</h1></div><div class="topbar-actions"><button class="btn btn-primary" onclick="openReserveFor(null)">+ New Reservation</button></div></header><div class="card table-card"><table class="table"><thead><tr><th>Machine ID</th><th>Operator</th><th>Start</th><th>End</th><th>Duration</th><th>Purpose</th><th>Status</th><th></th></tr></thead><tbody id="res-tbody"></tbody></table></div></section>
+      <section class="view hidden" id="view-calendar"><header class="topbar"><div><h1>Calendar</h1></div></header><div class="card"><div class="cal-weekrow"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div><div class="cal-grid" id="cal-grid"></div></div></section>
+      <!-- 🌟 UPGRADED: LIVE FLEET MAP -->
+      <section class="view hidden" id="view-map">
+        <header class="topbar">
+          <div>
+            <h1>Live Fleet Map</h1>
+            <p class="muted">Real-time GPS tracking & status</p>
+          </div>
+        </header>
+        <div class="card" style="padding:0; overflow:hidden; height:70vh; position:relative; border: 1px solid var(--border); box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+          
+          <!-- Floating Status Overlay (HUD) -->
+          <div style="position:absolute; top:20px; left:20px; z-index:400; background:white; padding:16px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.15); width: 220px; pointer-events:none; border: 1px solid var(--border);">
+            <h3 style="margin:0 0 12px 0; font-size:13px; color:var(--text-main); text-transform: uppercase; letter-spacing: 0.5px;">Live Fleet Status</h3>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">🟢 Available</span><span id="map-stat-avail" style="font-weight:800; font-size:13px; color:var(--green);">0</span></div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">🟠 In Use</span><span id="map-stat-inuse" style="font-weight:800; font-size:13px; color:#d97706;">0</span></div>
+            <div style="display:flex; justify-content:space-between;"><span style="font-size:12px; color:var(--text-muted); font-weight:600;">🔴 Maintenance</span><span id="map-stat-maint" style="font-weight:800; font-size:13px; color:var(--red);">0</span></div>
+          </div>
+
+          <div id="map-container" style="width:100%; height:100%; z-index:1;"></div>
+        </div>
+      </section>
+
+
+      <section class="view hidden" id="view-scan"><header class="topbar"><div><h1>Field Engineer Scan</h1></div></header><div class="card"><div class="qr-grid" id="qr-grid"></div></div></section>
+      <section class="view hidden" id="view-reports"><header class="topbar"><div><h1>Operational Analytics Report</h1></div><div class="topbar-actions no-print"><button class="btn btn-primary" onclick="window.print()">🖨️ Print PDF</button></div></header><div class="stats"><div class="stat"><div class="stat-label">Total Cost</div><div class="stat-value" id="rep-kpi-cost">$0</div></div><div class="stat"><div class="stat-label">Hours</div><div class="stat-value" id="rep-kpi-hours">0 h</div></div><div class="stat"><div class="stat-label">Bookings</div><div class="stat-value" id="rep-kpi-count">0</div></div></div><div class="card table-card" style="margin-top:24px;"><table class="table"><thead><tr><th>Machine ID</th><th>Type</th><th>Rate/hr</th><th>Bookings</th><th>Hours</th><th>Expenditure</th></tr></thead><tbody id="report-tbody"></tbody></table></div></section>
+      <section class="view hidden" id="view-inspections"><header class="topbar"><div><h1>Pre-Mobilization & Annual Safety Inspection</h1></div><div class="topbar-actions"><button class="btn btn-primary" onclick="openInspectionModal()">+ New Inspection</button></div></header><div class="stats"><div class="stat stat-green"><div class="stat-label">Cleared</div><div class="stat-value" id="insp-kpi-valid">0</div></div><div class="stat stat-amber"><div class="stat-label">Due Soon</div><div class="stat-value" id="insp-kpi-soon">0</div></div><div class="stat stat-red"><div class="stat-label">Expired</div><div class="stat-value" id="insp-kpi-expired">0</div></div></div><div class="card table-card"><table class="table"><thead><tr><th>Machine ID</th><th>Owner</th><th>Brand/Model</th><th>Serial/Engine</th><th>Year</th><th>Location</th><th>Inspected</th><th>Next Check</th><th></th></tr></thead><tbody id="inspection-tbody"></tbody></table></div></section>
+
+      <!-- Modals -->
+      <div class="modal hidden" id="modal-user"><div class="modal-box" style="width:400px;"><div class="modal-head"><h2 id="user-modal-title">Add User</h2><button class="x" onclick="closeModal('modal-user')">✕</button></div><form id="form-user" class="form"><label>Full Name <input name="fullName" required /></label><label>Email Address <input type="email" name="email" required /></label><label>Role Account Type<select name="role"><option value="field_engineer">Field Engineer</option><option value="site_manager">Site Manager</option><option value="safety_team">Safety Team</option></select></label><div id="user-password-field"><label>Initial Password <input type="password" name="password" minlength="6" /></label></div><div class="modal-foot"><button type="submit" class="btn btn-primary">Save User Account</button></div></form></div></div>
+      <div class="modal hidden" id="modal-password"><div class="modal-box" style="width:400px;"><div class="modal-head"><h2>Change Password</h2><button class="x" onclick="closeModal('modal-password')">✕</button></div><form id="form-password" class="form"><label>New Password <input type="password" name="newPassword" minlength="6" required /></label><div class="modal-foot"><button type="submit" class="btn btn-primary">Update Password</button></div></form></div></div>
+      
+      <!-- 🌟 UPGRADED: INSPECTION MODAL WITH IMAGE & PDF UPLOAD -->
+      <div class="modal hidden" id="modal-inspection">
+        <div class="modal-box" style="width:600px;">
+          <div class="modal-head">
+            <h2 id="insp-modal-title">Safety Inspection</h2>
+            <button class="x" onclick="closeModal('modal-inspection')">✕</button>
+          </div>
+          
+          <div id="insp-image-preview" style="width:100%; height:180px; background:#f1f5f9; border-radius:8px; margin-bottom:16px; background-size:cover; background-position:center; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-weight:600; border:1px solid var(--border);">
+            No Photo Uploaded
+          </div>
+
+          <form id="form-inspection" class="form">
+            <!-- PDF Upload Field -->
+            <label>Upload Inspection Report (PDF) <span class="muted small">(Optional)</span>
+              <input type="file" id="inspection-report-upload" accept="application/pdf" style="padding: 6px; border: 1px dashed var(--border); border-radius: 8px; width: 100%; margin-bottom: 12px;" />
+            </label>
+
+            <div class="form-row">
+              <label>Machine ID <select name="assetId" required onchange="window.updateInspectionImage(this.value)"></select></label>
+              <label>Owner <input name="owner" required /></label>
+            </div>
+            <div class="form-row"><label>Brand <input name="brand" required /></label><label>Model <input name="model" required /></label></div>
+            <div class="form-row"><label>Serial No <input name="serialNo" required /></label><label>Engine No <input name="engineNo" required /></label></div>
+            <div class="form-row"><label>Year <input type="number" name="manufacturerYear" required /></label><label>Location <input name="inspectionLocation" value="Moheshkhali Yard" required /></label></div>
+            <div class="form-row"><label>Date <input type="date" name="inspectionDate" required /></label><label>Inspected By <input name="inspectedBy" required /></label></div>
+            <label>Status
+              <select name="status" onchange="window.toggleRemarksField(this.value)">
+                <option value="Cleared">Cleared (Valid 1 Year)</option>
+                <option value="Conditional">Conditional Clearance (Minor Fix)</option>
+                <option value="Rejected">Rejected</option>
+              </select>
+            </label>
+            <div id="remarks-container" class="hidden"><label>Remarks <textarea name="remarks" rows="2" style="width:100%;border-radius:8px;padding:8px;border:1px solid #d2dee9;"></textarea></label></div>
+            <div class="modal-foot"><button type="submit" class="btn btn-primary">Save Certificate</button></div>
+          </form>
+        </div>
+      </div>
+      
+     <!-- 🌟 UPGRADED: BRANDED LOGIN MODAL -->
+      <div class="modal hidden" id="modal-auth">
+        <div class="modal-box" style="width:420px; padding: 48px 36px; border-radius: 16px;">
+          
+          <!-- Branding Header -->
+          <div style="text-align:center; margin-bottom: 32px;">
+            <img src="img/logo.png" alt="FleetOps Logo" style="height: 72px; margin-bottom: 16px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);" onerror="this.style.display='none'">
+            <h1 style="font-size: 28px; font-weight: 800; color: var(--text-main); margin: 0 0 6px 0; letter-spacing: -0.5px;">FleetOps</h1>
+            <p style="font-size: 13px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Vehicle Reservation & Safety Inspection</p>
+          </div>
+
+          <!-- Login Form -->
+          <form id="form-login" class="form">
+            <label>Username : <input type="email" name="email" placeholder="admin@ptjv.com" required /></label>
+            <label>Pass: <input type="password" name="password" placeholder="••••••••" required /></label>
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 16px; font-weight: 600; margin-top: 12px;">Login</button>
+          </form>
+
+        </div>
+      </div>
+      
+      
+      <div class="modal hidden" id="modal-reserve"><div class="modal-box"><div class="modal-head"><h2>Allocation</h2><button class="x" onclick="closeModal('modal-reserve')">✕</button></div><form id="form-reserve" class="form"><label>Machine ID <select name="vehicle" required></select></label><div class="form-row"><label>Operator <input name="operator" required /></label><label>Phone <input name="phone" /></label></div><div class="form-row"><label>Start <input type="datetime-local" name="start" required /></label><label>End <input type="datetime-local" name="end" required /></label></div><label>Purpose <input name="purpose" required /></label><div class="modal-foot"><button type="submit" class="btn btn-primary">Save Reservation</button></div></form></div></div>
+      
+      <!-- 🌟 EXPANDED: MULTI-COLUMN VEHICLE DETAIL MODAL -->
+      <div class="modal hidden" id="modal-detail">
+        <div class="modal-box" style="width: 900px; max-width: 95vw;">
+          <div class="modal-head">
+            <h2 id="detail-title">Vehicle Specs</h2>
+            <button class="x" onclick="closeModal('modal-detail')">✕</button>
+          </div>
+          <div id="detail-body"></div>
+        </div>
+      </div>
+      
+      
+      <div class="modal hidden" id="modal-scan"><div class="modal-box modal-scan-box"><div class="modal-head"><span class="muted small">QR mobile preview</span><button class="x" onclick="closeModal('modal-scan')">✕</button></div><div id="scan-body"></div></div></div>
+      <div class="toast hidden" id="toast"></div>
+
+      <!-- 🌟 NEW: IN-APP PDF VIEWER MODAL -->
+      <div class="modal hidden" id="modal-pdf">
+        <div class="modal-box" style="width: 800px; max-width: 95vw; height: 85vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; background: #1e293b;">
+          <div class="modal-head" style="background: white; padding: 16px 24px; border-bottom: 1px solid var(--border);">
+            <h2 id="pdf-modal-title">Inspection Report</h2>
+            <button class="x" onclick="closeModal('modal-pdf')">✕</button>
+          </div>
+          <div style="flex-grow: 1; width: 100%; background: #334155;">
+            <iframe id="pdf-iframe" style="width: 100%; height: 100%; border: none;"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🌟 EXPANDED: ADD ASSET MODAL -->
+      <div class="modal hidden" id="modal-add-asset">
+        <div class="modal-box" style="width: 600px;">
+          <div class="modal-head">
+            <h2>New Site Vehicle</h2>
+            <button class="x" onclick="closeModal('modal-add-asset')">✕</button>
+          </div>
+          <form id="form-add-asset" class="form">
+           <label>Vehicle Photo <span class="muted small">(Take Photo or Choose File)</span>
+  <input type="file" id="asset-image-upload" accept="image/*" style="padding: 6px; border: 1px dashed var(--border); border-radius: 8px; width: 100%;" />
+</label>
+            <div class="form-row">
+              <label>Machine ID <input name="plateNumber" required /></label>
+              <label>Owner <input name="owner" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Brand <input name="brand" required /></label>
+              <label>Model <input name="name" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Equipment Type 
+                <select name="type">
+                  <option>Dump Truck</option>
+                  <option>Excavator</option>
+                  <option>Crane</option>
+                  <option>Bulldozer</option>
+                  <option>Loader</option>
+                  <option>Compactor</option>
+                  <option>Forklift</option>
+                  <option>Concrete Mixer</option>
+                  <option>Articulated Truck</option>
+                </select>
+              </label>
+              <label>Mfg Year <input type="number" name="manufacturerYear" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Serial No <input name="serialNo" required /></label>
+              <label>Engine No <input name="engineNo" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Rate/Hr (USD) <input type="number" name="hourlyRate" required /></label>
+              <label>Location <input name="location" value="Moheshkhali Yard" /></label>
+            </div>
+            <div class="modal-foot"><button type="submit" class="btn btn-primary">Save Vehicle</button></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- 🌟 EXPANDED: EDIT ASSET MODAL -->
+      <div class="modal hidden" id="modal-edit-asset">
+        <div class="modal-box" style="width: 600px;">
+          <div class="modal-head">
+            <h2>Edit Vehicle Specs</h2>
+            <button class="x" onclick="closeModal('modal-edit-asset')">✕</button>
+          </div>
+          <form id="form-edit-asset" class="form">
+            <input type="hidden" name="assetId" id="edit-asset-id" />
+              <label>Update Photo <span class="muted small">(Take Photo or Choose File)</span> 
+  <input type="file" id="edit-asset-image-upload" accept="image/*" style="padding: 6px; border: 1px dashed var(--border); border-radius: 8px; width: 100%;" />
+</label>
+
+
+            <div class="form-row">
+              <label>Machine ID <input name="plateNumber" id="edit-asset-plate" required /></label>
+              <label>Owner <input name="owner" id="edit-asset-owner" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Brand <input name="brand" id="edit-asset-brand" required /></label>
+              <label>Model <input name="name" id="edit-asset-name" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Equipment Type 
+                <select name="type" id="edit-asset-type">
+                  <option>Dump Truck</option>
+                  <option>Excavator</option>
+                  <option>Crane</option>
+                  <option>Bulldozer</option>
+                  <option>Loader</option>
+                  <option>Compactor</option>
+                  <option>Forklift</option>
+                  <option>Concrete Mixer</option>
+                  <option>Articulated Truck</option>
+                </select>
+              </label>
+              <label>Mfg Year <input type="number" name="manufacturerYear" id="edit-asset-year" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Serial No <input name="serialNo" id="edit-asset-serial" required /></label>
+              <label>Engine No <input name="engineNo" id="edit-asset-engine" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Rate/Hr (USD) <input type="number" name="hourlyRate" id="edit-asset-rate" required /></label>
+              <label>Location <input name="location" id="edit-asset-location" /></label>
+            </div>
+            <div class="modal-foot"><button type="submit" class="btn btn-primary">Update Vehicle Database</button></div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
