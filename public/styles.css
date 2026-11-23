@@ -796,3 +796,71 @@ h1 {
   from { transform: translateY(12px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+/* ============================================================
+   🚀 ENTERPRISE UPGRADES: Animations, Scrollbars & Mobile
+   ============================================================ */
+
+/* 1. Sleek Custom Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #f8fafc; border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* 2. Smooth Modal Fade-In Animation */
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(15px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal:not(.hidden) .modal-box {
+  animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 3. Asset Card Micro-Interactions (Hover Lift) */
+.asset-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+.asset-card:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.08) !important;
+}
+
+/* 4. Mobile Responsiveness (Smart Overrides) */
+@media (max-width: 768px) {
+  /* Fix Modals to fit phone screens */
+  .modal-box {
+    width: 95vw !important;
+    padding: 16px !important;
+    margin: 10px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* Stack the 2-Column Vehicle Detail Modal into 1 Column */
+  #detail-body > div {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+  
+  /* Convert the vertical border into a horizontal separator on mobile */
+  #detail-body > div > div:nth-child(2) {
+    border-left: none !important;
+    padding-left: 0 !important;
+    border-top: 1px dashed var(--border);
+    padding-top: 24px;
+  }
+
+  /* Stack the Dashboard stats */
+  .stats, .grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Stack the Asset List View mode */
+  #asset-grid > div > div:nth-child(2) {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  #asset-grid > div {
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+}
