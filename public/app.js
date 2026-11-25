@@ -391,7 +391,10 @@ function renderLiveMap() {
     if (!mapInstance) {
       mapInstance = L.map('map-container', { zoomControl: false }).setView([21.692153, 91.867748], 13);
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(mapInstance);
+     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Tiles &copy; Esri',
+  maxZoom: 19
+}).addTo(mapInstance);
     } else {
       mapInstance.invalidateSize();
       mapInstance.eachLayer(l => { if (l instanceof L.Marker) mapInstance.removeLayer(l); });

@@ -18,7 +18,10 @@ const { authenticateToken } = require('./middleware');
 const app = express();
 
 // Security headers (CSP disabled so inline Leaflet/Chart.js/QR scripts keep working)
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: false,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}));
 app.use(cors());
 
 // Safe JSON limit now that files use multipart/form-data
@@ -28,7 +31,7 @@ app.use(express.urlencoded({ limit: '1mb', extended: true }));
 // Rate limiters
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: 1000,
   message: { error: 'Too many requests. Please slow down.' }
 });
 app.use('/api/', apiLimiter);
