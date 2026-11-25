@@ -2,18 +2,108 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const { Server } = require('socket.io');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const { z } = require('zod');
 const db = require('./db');
 const authRouter = require('./auth');
 const { authenticateToken } = require('./middleware');
 
 const app = express();
+
+// Security headers (CSP disabled so inline Leaflet/Chart.js/QR scripts keep working)
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Safe JSON limit now that files use multipart/form-data
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+
+// Rate limiters
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 150,
+  message: { error: 'Too many requests. Please slow down.' }
+});
+app.use('/api/', apiLimiter);
+
+const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Rate limit exceeded. Try again later.' }
+});
+app.use('/api/auth/login', strictLimiter);
+
+// --- ZOD VALIDATION ---
+const validate = (schema) => (req, res, next) => {
+  const result = schema.safeParse(req.body);
+  if (!result.success) {
+    const msg = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+    return res.status(400).json({ error: `Validation failed — ${msg}` });
+  }
+  req.body = result.data;
+  next();
+};
+
+const assetSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  type: z.string().min(1, 'Type is required'),
+  plateNumber: z.string().min(1, 'Plate number is required'),
+  hourlyRate: z.coerce.number().min(0).default(0),
+  location: z.string().optional().default('Moheshkhali Yard'),
+  latitude: z.coerce.number().optional(),
+  longitude: z.coerce.number().optional(),
+  owner: z.string().optional().nullable(),
+  brand: z.string().optional().nullable(),
+  serialNo: z.string().optional().nullable(),
+  engineNo: z.string().optional().nullable(),
+  manufacturerYear: z.union([z.coerce.number().int().min(1950).max(2100), z.literal('')]).optional().nullable()
+    .transform(v => (v === '' || v === undefined ? null : v))
+});
+
+const reservationSchema = z.object({
+  assetId: z.string().min(1, 'Vehicle is required'),
+  operatorName: z.string().min(1, 'Operator name is required'),
+  phoneNumber: z.string().optional().nullable(),
+  startTime: z.string().datetime({ message: 'Valid ISO start time required' }),
+  endTime: z.string().datetime({ message: 'Valid ISO end time required' }),
+  purpose: z.string().min(1, 'Purpose is required'),
+  latitude: z.coerce.number().optional(),
+  longitude: z.coerce.number().optional()
+});
+
+const statusSchema = z.object({
+  status: z.enum(['available', 'maintenance'])
+});
+
+// --- MULTER UPLOADS ---
+const uploadsDir = path.join(__dirname, 'public', 'uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${file.fieldname}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max per file
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|webp|pdf/;
+    const extOk = allowed.test(path.extname(file.originalname).toLowerCase());
+    if (extOk) return cb(null, true);
+    cb(new Error('Only JPG, PNG, WEBP, and PDF files are allowed.'));
+  }
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
@@ -50,6 +140,49 @@ function requireSafetyAccess(req, res, next) {
   if (req.user.role !== 'site_manager' && req.user.role !== 'safety_team') return res.status(403).json({ error: 'Access Denied: Safety Team clearance required.' });
   next();
 }
+
+// --- HEALTH CHECK ---
+app.get('/api/health', async (req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ status: 'ok', database: 'connected', uptime: Math.floor(process.uptime()) });
+  } catch (err) {
+    res.status(503).json({ status: 'error', database: 'disconnected' });
+  }
+});
+
+const ASSET_STATUS_SQL = `
+  CASE
+    WHEN a.status = 'maintenance' THEN 'maintenance'
+    WHEN EXISTS (
+      SELECT 1 FROM reservations r
+      WHERE r.asset_id = a.id AND NOW() BETWEEN r.start_time AND r.end_time
+    ) THEN 'in-use'
+    ELSE 'available'
+  END AS status
+`;
+
+// --- PUBLIC QR SCAN ENDPOINT (Read-Only, Zero PII) ---
+app.get('/api/public/assets/:id', async (req, res) => {
+  try {
+    const assetRes = await db.query(
+      `SELECT a.id, a.name, a.type, a.plate_number, ${ASSET_STATUS_SQL},
+              a.current_location, a.image_data, a.owner, a.brand, a.serial_no, a.engine_no, a.manufacturer_year
+       FROM assets a WHERE a.id = $1`,
+      [req.params.id]
+    );
+    if (assetRes.rows.length === 0) return res.status(404).json({ error: 'Vehicle not found.' });
+
+    const inspRes = await db.query(
+      `SELECT inspection_date, next_annual_due, inspected_by, status, remarks
+       FROM inspections WHERE asset_id = $1 ORDER BY inspection_date DESC LIMIT 1`,
+      [req.params.id]
+    );
+    res.json({ asset: assetRes.rows[0], latestInspection: inspRes.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- ACTIVITY LOGS ---
 app.get('/api/logs', authenticateToken, requireSiteManager, async (req, res) => {
@@ -124,75 +257,78 @@ app.delete('/api/users/:id', authenticateToken, requireSiteManager, async (req, 
 });
 
 // --- ASSETS ---
-app.get('/api/assets', async (req, res) => {
+app.get('/api/assets', authenticateToken, async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM assets ORDER BY id ASC');
+    const result = await db.query(
+      `SELECT a.id, a.name, a.type, a.plate_number, a.hourly_rate, ${ASSET_STATUS_SQL},
+              a.current_location, a.latitude, a.longitude, a.image_data,
+              a.owner, a.brand, a.serial_no, a.engine_no, a.manufacturer_year
+       FROM assets a ORDER BY a.id ASC`
+    );
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/assets', authenticateToken, requireSiteManager, async (req, res) => {
-  const { name, type, plateNumber, hourlyRate, location, latitude, longitude, imageData, owner, brand, serialNo, engineNo, manufacturerYear } = req.body;
-  if (!name || !type || !plateNumber) return res.status(400).json({ error: 'Missing specifications.' });
+app.post('/api/assets', authenticateToken, requireSiteManager, upload.single('image'), validate(assetSchema), async (req, res) => {
+  const { name, type, plateNumber, hourlyRate, location, latitude, longitude, owner, brand, serialNo, engineNo, manufacturerYear } = req.body;
+  const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
   try {
-    const assetId = 'A' + Date.now().toString().slice(-3);
+    const assetId = 'A-' + crypto.randomUUID().split('-')[0].toUpperCase();
     const result = await db.query(
       `INSERT INTO assets (id, name, type, plate_number, hourly_rate, status, current_location, latitude, longitude, image_data, owner, brand, serial_no, engine_no, manufacturer_year)
        VALUES ($1, $2, $3, $4, $5, 'available', $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
       [
-        assetId, name, type, plateNumber, parseFloat(hourlyRate || 0),
-        location || 'Moheshkhali Yard', parseFloat(latitude) || 21.692153, parseFloat(longitude) || 91.867748,
-        imageData || null, owner, brand, serialNo, engineNo, manufacturerYear ? parseInt(manufacturerYear) : null
+        assetId, name, type, plateNumber, hourlyRate,
+        location || 'Moheshkhali Yard', latitude || 21.692153, longitude || 91.867748,
+        imageUrl, owner || null, brand || null, serialNo || null, engineNo || null, manufacturerYear
       ]
     );
     await logActivity(req, 'REGISTERED VEHICLE', `Added ${name} [${plateNumber}]`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: (await db.query('SELECT * FROM reservations')).rows });
+    io.emit('fleetUpdate');
     res.status(201).json({ success: true, asset: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/assets/:id', authenticateToken, requireSiteManager, async (req, res) => {
-  const { name, type, plateNumber, hourlyRate, location, imageData, owner, brand, serialNo, engineNo, manufacturerYear } = req.body;
+app.put('/api/assets/:id', authenticateToken, requireSiteManager, upload.single('image'), validate(assetSchema), async (req, res) => {
+  const { name, type, plateNumber, hourlyRate, location, owner, brand, serialNo, engineNo, manufacturerYear } = req.body;
+  const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
   try {
-    if (imageData) {
+    if (imageUrl) {
       await db.query(
         `UPDATE assets SET name=$1, type=$2, plate_number=$3, hourly_rate=$4, current_location=$5, owner=$6, brand=$7, serial_no=$8, engine_no=$9, manufacturer_year=$10, image_data=$11 WHERE id=$12`,
-        [name, type, plateNumber, parseFloat(hourlyRate || 0), location, owner, brand, serialNo, engineNo, manufacturerYear ? parseInt(manufacturerYear) : null, imageData, req.params.id]
+        [name, type, plateNumber, hourlyRate, location, owner || null, brand || null, serialNo || null, engineNo || null, manufacturerYear, imageUrl, req.params.id]
       );
     } else {
       await db.query(
         `UPDATE assets SET name=$1, type=$2, plate_number=$3, hourly_rate=$4, current_location=$5, owner=$6, brand=$7, serial_no=$8, engine_no=$9, manufacturer_year=$10 WHERE id=$11`,
-        [name, type, plateNumber, parseFloat(hourlyRate || 0), location, owner, brand, serialNo, engineNo, manufacturerYear ? parseInt(manufacturerYear) : null, req.params.id]
+        [name, type, plateNumber, hourlyRate, location, owner || null, brand || null, serialNo || null, engineNo || null, manufacturerYear, req.params.id]
       );
     }
     await logActivity(req, 'UPDATED VEHICLE', `Modified profile specs for asset ID ${req.params.id}`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: (await db.query('SELECT * FROM reservations')).rows });
+    io.emit('fleetUpdate');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/assets/:id/status', authenticateToken, requireSiteManager, async (req, res) => {
+app.put('/api/assets/:id/status', authenticateToken, requireSiteManager, validate(statusSchema), async (req, res) => {
   const { status } = req.body;
   try {
     await db.query(`UPDATE assets SET status = $1 WHERE id = $2`, [status, req.params.id]);
     await logActivity(req, 'STATUS UPDATE', `Marked vehicle ${req.params.id} as ${status}`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: (await db.query('SELECT * FROM reservations')).rows });
+    io.emit('fleetUpdate');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/assets/:id/location', async (req, res) => {
+app.put('/api/assets/:id/location', strictLimiter, authenticateToken, async (req, res) => {
   const { latitude, longitude, locationName } = req.body;
   if (!latitude || !longitude) return res.status(400).json({ error: 'Missing GPS data' });
   try {
@@ -201,13 +337,8 @@ app.put('/api/assets/:id/location', async (req, res) => {
     } else {
       await db.query(`UPDATE assets SET latitude = $1, longitude = $2 WHERE id = $3`, [latitude, longitude, req.params.id]);
     }
-    await db.query(
-      'INSERT INTO activity_logs (user_name, role, action, details) VALUES ($1, $2, $3, $4)',
-      ['Field Scanner', 'guest', 'GPS SYNC', `Vehicle ${req.params.id} pinged live coordinates at ${locationName || 'Unknown Zone'}.`]
-    );
-    io.emit('logUpdate');
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: (await db.query('SELECT * FROM reservations')).rows });
+    await logActivity(req, 'GPS SYNC', `Vehicle ${req.params.id} pinged live coordinates at ${locationName || 'Unknown Zone'}.`);
+    io.emit('fleetUpdate');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -224,8 +355,7 @@ app.delete('/api/assets/:id', authenticateToken, requireSiteManager, async (req,
     if (delRes.rows.length === 0) throw new Error('Asset not found.');
     await client.query('COMMIT');
     await logActivity(req, 'DELETED VEHICLE', `Permanently deleted vehicle [${delRes.rows[0].plate_number}]`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: (await db.query('SELECT * FROM reservations')).rows });
+    io.emit('fleetUpdate');
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -238,7 +368,7 @@ app.delete('/api/assets/:id', authenticateToken, requireSiteManager, async (req,
 // --- RESERVATIONS ---
 const RES_SELECT = `SELECT id, asset_id AS "assetId", user_id AS "userId", operator_name AS "operatorName", phone_number AS "phoneNumber", start_time AS "startTime", end_time AS "endTime", purpose FROM reservations ORDER BY start_time ASC`;
 
-app.get('/api/reservations', async (req, res) => {
+app.get('/api/reservations', authenticateToken, async (req, res) => {
   try {
     const result = await db.query(RES_SELECT);
     res.json(result.rows);
@@ -247,30 +377,40 @@ app.get('/api/reservations', async (req, res) => {
   }
 });
 
-app.post('/api/reservations', authenticateToken, requireReservationAccess, async (req, res) => {
+app.post('/api/reservations', authenticateToken, requireReservationAccess, validate(reservationSchema), async (req, res) => {
   const { assetId, operatorName, phoneNumber, startTime, endTime, purpose, latitude, longitude } = req.body;
   if (new Date(endTime) <= new Date(startTime)) return res.status(400).json({ error: 'End time must be after start time.' });
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+
+    const assetCheck = await client.query('SELECT status FROM assets WHERE id = $1', [assetId]);
+    if (assetCheck.rows.length === 0) throw new Error('Vehicle not found.');
+    if (assetCheck.rows[0].status === 'maintenance') throw new Error('Cannot reserve a vehicle currently under maintenance.');
+
     const overlap = await client.query(
       'SELECT id FROM reservations WHERE asset_id = $1 AND (start_time, end_time) OVERLAPS ($2::timestamp, $3::timestamp)',
       [assetId, startTime, endTime]
     );
     if (overlap.rows.length > 0) throw new Error('Double-booking conflict!');
+
     await client.query(
       'INSERT INTO reservations (asset_id, user_id, operator_name, phone_number, start_time, end_time, purpose) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [assetId, req.user.id, operatorName, phoneNumber, startTime, endTime, purpose]
+      [assetId, req.user.id, operatorName, phoneNumber || null, startTime, endTime, purpose]
     );
-    await client.query(
-      "UPDATE assets SET status = 'in-use', current_location = $1, latitude = $2, longitude = $3 WHERE id = $4",
-      [purpose, latitude || 21.692153, longitude || 91.867748, assetId]
-    );
+
+    // Only update live location if the reservation is active right now
+    const now = Date.now();
+    if (now >= new Date(startTime).getTime() && now <= new Date(endTime).getTime()) {
+      await client.query(
+        'UPDATE assets SET current_location = $1, latitude = $2, longitude = $3 WHERE id = $4',
+        [purpose, latitude || 21.692153, longitude || 91.867748, assetId]
+      );
+    }
+
     await client.query('COMMIT');
     await logActivity(req, 'CREATED RESERVATION', `Allocated vehicle ${assetId} to ${operatorName}`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    const freshRes = await db.query(RES_SELECT);
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: freshRes.rows });
+    io.emit('fleetUpdate');
     res.status(201).json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -282,15 +422,14 @@ app.post('/api/reservations', authenticateToken, requireReservationAccess, async
 
 app.put('/api/reservations/:id', authenticateToken, requireReservationAccess, async (req, res) => {
   const { operatorName, phoneNumber, startTime, endTime, purpose } = req.body;
+  if (new Date(endTime) <= new Date(startTime)) return res.status(400).json({ error: 'End time must be after start time.' });
   try {
     await db.query(
       'UPDATE reservations SET operator_name = $1, phone_number = $2, start_time = $3, end_time = $4, purpose = $5 WHERE id = $6',
-      [operatorName, phoneNumber, startTime, endTime, purpose, req.params.id]
+      [operatorName, phoneNumber || null, startTime, endTime, purpose, req.params.id]
     );
     await logActivity(req, 'UPDATED RESERVATION', `Modified allocation settings for Record #${req.params.id}`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    const freshRes = await db.query(RES_SELECT);
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: freshRes.rows });
+    io.emit('fleetUpdate');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -304,12 +443,10 @@ app.delete('/api/reservations/:id', authenticateToken, requireReservationAccess,
     const resCheck = await client.query('SELECT asset_id FROM reservations WHERE id = $1', [req.params.id]);
     if (resCheck.rows.length === 0) return res.status(404).json({ error: 'Record not found.' });
     await client.query('DELETE FROM reservations WHERE id = $1', [req.params.id]);
-    await client.query("UPDATE assets SET status = 'available', current_location = 'Moheshkhali Base Yard' WHERE id = $1", [resCheck.rows[0].asset_id]);
+    await client.query("UPDATE assets SET current_location = 'Moheshkhali Base Yard' WHERE id = $1", [resCheck.rows[0].asset_id]);
     await client.query('COMMIT');
     await logActivity(req, 'DELETED RESERVATION', `Cancelled and released allocation #${req.params.id}`);
-    const freshAssets = await db.query('SELECT * FROM assets ORDER BY id ASC');
-    const freshRes = await db.query(RES_SELECT);
-    io.emit('fleetUpdate', { assets: freshAssets.rows, reservations: freshRes.rows });
+    io.emit('fleetUpdate');
     res.json({ success: true });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -320,7 +457,7 @@ app.delete('/api/reservations/:id', authenticateToken, requireReservationAccess,
 });
 
 // --- INSPECTIONS ---
-app.get('/api/inspections', async (req, res) => {
+app.get('/api/inspections', authenticateToken, async (req, res) => {
   try {
     const result = await db.query(
       'SELECT i.*, a.name AS "assetName", a.plate_number AS "plateNumber", a.type AS "assetType" FROM inspections i JOIN assets a ON i.asset_id = a.id ORDER BY i.next_annual_due ASC'
@@ -331,8 +468,9 @@ app.get('/api/inspections', async (req, res) => {
   }
 });
 
-app.post('/api/inspections', authenticateToken, requireSafetyAccess, async (req, res) => {
-  const { assetId, owner, brand, model, serialNo, engineNo, manufacturerYear, inspectionLocation, inspectionDate, inspectedBy, status, remarks, reportDoc } = req.body;
+app.post('/api/inspections', authenticateToken, requireSafetyAccess, upload.single('reportDoc'), async (req, res) => {
+  const { assetId, owner, brand, model, serialNo, engineNo, manufacturerYear, inspectionLocation, inspectionDate, inspectedBy, status, remarks } = req.body;
+  const reportUrl = req.file ? `/uploads/${req.file.filename}` : null;
   try {
     const nextDueObj = new Date(inspectionDate);
     nextDueObj.setFullYear(nextDueObj.getFullYear() + 1);
@@ -340,7 +478,7 @@ app.post('/api/inspections', authenticateToken, requireSafetyAccess, async (req,
     const result = await db.query(
       `INSERT INTO inspections (asset_id, owner, brand, model, serial_no, engine_no, manufacturer_year, inspection_location, inspection_date, next_annual_due, inspected_by, status, remarks, report_doc)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      [assetId, owner, brand, model, serialNo, engineNo, parseInt(manufacturerYear), inspectionLocation, inspectionDate, nextAnnualDue, inspectedBy, status || 'Cleared', remarks || null, reportDoc || null]
+      [assetId, owner, brand, model, serialNo, engineNo, parseInt(manufacturerYear), inspectionLocation, inspectionDate, nextAnnualDue, inspectedBy, status || 'Cleared', remarks || null, reportUrl]
     );
     await logActivity(req, 'LOGGED INSPECTION', `Submitted safety audit for ${assetId} -> Status: ${status}`);
     io.emit('inspectionUpdate');
@@ -348,6 +486,15 @@ app.post('/api/inspections', authenticateToken, requireSafetyAccess, async (req,
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Clean JSON error handler for Multer & unexpected errors
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err.message?.includes('Only JPG')) {
+    return res.status(400).json({ error: err.message });
+  }
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
 app.get(/.*/, (req, res) => {

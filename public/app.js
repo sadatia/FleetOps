@@ -10,6 +10,17 @@ let assetViewMode = 'grid';
 const $ = sel => document.querySelector(sel);
 const $$ = sel => document.querySelectorAll(sel);
 
+// XSS Protection: Escape any user/database text before injecting into innerHTML
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getAuthHeader() {
   const token = localStorage.getItem('fo_token');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -27,20 +38,45 @@ function handleAuthError(res) {
 }
 
 async function load() {
+  const token = localStorage.getItem('fo_token');
+
+  // If unauthenticated guest scanned a QR code, fetch ONLY the public endpoint
+  if (!token) {
+    if (window.location.hash.startsWith('#scan=')) {
+      const assetId = window.location.hash.split('=')[1];
+      try {
+        const res = await fetch(`${API_BASE_URL}/public/assets/${encodeURIComponent(assetId)}`);
+        if (!res.ok) throw new Error('Vehicle not found');
+        const { asset, latestInspection } = await res.json();
+        assets = [asset];
+        inspections = latestInspection ? [{ ...latestInspection, asset_id: asset.id }] : [];
+        simulateScan(asset.id);
+        history.replaceState(null, null, ' ');
+      } catch (err) {
+        toast('⚠️ Invalid or expired QR link.');
+      }
+    }
+    return;
+  }
+
   try {
+    const headers = getAuthHeader();
     const [assetsRes, resRes, inspRes] = await Promise.all([
-      fetch(`${API_BASE_URL}/assets`),
-      fetch(`${API_BASE_URL}/reservations`),
-      fetch(`${API_BASE_URL}/inspections`)
+      fetch(`${API_BASE_URL}/assets`, { headers }),
+      fetch(`${API_BASE_URL}/reservations`, { headers }),
+      fetch(`${API_BASE_URL}/inspections`, { headers })
     ]);
+
+    if (handleAuthError(assetsRes) || handleAuthError(resRes) || handleAuthError(inspRes)) return;
+
     assets = await assetsRes.json();
     reservations = await resRes.json();
     inspections = inspRes.ok ? await inspRes.json() : [];
 
     if (currentUser && currentUser.role === 'site_manager') {
       const [uRes, logRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/users`, { headers: getAuthHeader() }),
-        fetch(`${API_BASE_URL}/logs`, { headers: getAuthHeader() })
+        fetch(`${API_BASE_URL}/users`, { headers }),
+        fetch(`${API_BASE_URL}/logs`, { headers })
       ]);
       if (handleAuthError(uRes) || handleAuthError(logRes)) return;
       if (uRes.ok) usersList = await uRes.json();
@@ -73,7 +109,9 @@ async function load() {
 function getAsset(id) { return assets.find(a => a.id === id); }
 
 function getLatestInspection(assetId) {
-  const history = inspections.filter(i => i.asset_id === assetId).sort((a, b) => new Date(b.inspection_date) - new Date(a.inspection_date));
+  const history = inspections
+    .filter(i => i.asset_id === assetId)
+    .sort((a, b) => new Date(b.inspection_date) - new Date(a.inspection_date));
   return { latest: history[0] || null, history };
 }
 
@@ -84,7 +122,7 @@ function typeIcon(type) {
 function fmtDate(iso) { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 function fmtDateShort(iso) { return iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'; }
 function hoursBetween(start, end) { return Math.max(0, (new Date(end) - new Date(start)) / 36e5); }
-function statusBadge(status) { return `<span class="badge badge-${status}">${status.replace('-', ' ')}</span>`; }
+function statusBadge(status) { return `<span class="badge badge-${esc(status)}">${esc(status.replace('-', ' '))}</span>`; }
 function statusPillClass(status) { return status === 'in-use' ? 'in-use' : status === 'maintenance' ? 'maintenance' : 'available'; }
 function reservationStatus(r) { const now = Date.now(), s = new Date(r.startTime).getTime(), e = new Date(r.endTime).getTime(); return now < s ? 'upcoming' : now > e ? 'completed' : 'active'; }
 
@@ -131,11 +169,11 @@ function renderLogs() {
       <tr>
         <td class="muted small" style="white-space:nowrap; font-family:monospace; font-size:12px;">${fmtDate(l.timestamp)}</td>
         <td>
-          <div class="cell-strong" style="color:var(--text-main); font-size: 13px;">${l.user_name}</div>
-          <div class="muted small" style="font-size:11px; margin-top:2px;">${(l.role || '').replace('_', ' ').toUpperCase()}</div>
+          <div class="cell-strong" style="color:var(--text-main); font-size: 13px;">${esc(l.user_name)}</div>
+          <div class="muted small" style="font-size:11px; margin-top:2px;">${esc((l.role || '').replace('_', ' ').toUpperCase())}</div>
         </td>
-        <td><span style="background:${actionBg}; color:${actionColor}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:800; border:1px solid ${actionColor}33; letter-spacing:0.5px;">${act}</span></td>
-        <td style="color:var(--text-muted); font-size:13px; line-height:1.5;">${l.details}</td>
+        <td><span style="background:${actionBg}; color:${actionColor}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:800; border:1px solid ${actionColor}33; letter-spacing:0.5px;">${esc(act)}</span></td>
+        <td style="color:var(--text-muted); font-size:13px; line-height:1.5;">${esc(l.details)}</td>
       </tr>`;
   }).join('') || '<tr><td colspan="4" class="muted" style="text-align:center;padding:40px; font-size:14px;">No system activity matching criteria.</td></tr>';
 }
@@ -146,7 +184,7 @@ function renderUsers() {
   tbody.innerHTML = usersList.map(u => {
     const safeRole = u.role ? u.role.replace('_', ' ').toUpperCase() : 'UNASSIGNED';
     const safeName = u.full_name || 'Unknown User';
-    return `<tr><td><div class="cell-strong">${safeName}</div></td><td>${u.email}</td><td><span class="badge badge-in-use">${safeRole}</span></td><td><div style="display:flex; gap:6px;"><button class="btn btn-ghost btn-sm" style="color:var(--primary);" onclick="openEditUserModal('${u.id}')">✏️ Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="openPasswordModal('${u.id}')">🔑 Pass</button><button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="deleteUser('${u.id}')">🗑️ Del</button></div></td></tr>`;
+    return `<tr><td><div class="cell-strong">${esc(safeName)}</div></td><td>${esc(u.email)}</td><td><span class="badge badge-in-use">${esc(safeRole)}</span></td><td><div style="display:flex; gap:6px;"><button class="btn btn-ghost btn-sm" style="color:var(--primary);" onclick="openEditUserModal('${esc(u.id)}')">✏️ Edit</button><button class="btn btn-ghost btn-sm" style="color:var(--amber);" onclick="openPasswordModal('${esc(u.id)}')">🔑 Pass</button><button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="deleteUser('${esc(u.id)}')">🗑️ Del</button></div></td></tr>`;
   }).join('');
 }
 
@@ -230,7 +268,7 @@ function renderDashboard() {
   $('#active-count').textContent = activeList.length + ' running';
   $('#active-list').innerHTML = activeList.length ? activeList.map(r => {
     const a = getAsset(r.assetId); if (!a) return '';
-    return `<div class="list-item" onclick="showDetail('${a.id}')"><div class="li-ico">${typeIcon(a.type)}</div><div class="li-main"><div class="li-title">${a.plate_number}</div><div class="li-sub">${r.operatorName} &bull; ${a.name}</div></div><div class="li-meta"><div class="cell-strong">Until ${fmtDateShort(r.endTime)}</div></div></div>`;
+    return `<div class="list-item" onclick="showDetail('${esc(a.id)}')"><div class="li-ico">${typeIcon(a.type)}</div><div class="li-main"><div class="li-title">${esc(a.plate_number)}</div><div class="li-sub">${esc(r.operatorName)} &bull; ${esc(a.name)}</div></div><div class="li-meta"><div class="cell-strong">Until ${fmtDateShort(r.endTime)}</div></div></div>`;
   }).join('') : '<p class="muted small" style="padding:12px">No active assignments running now.</p>';
 
   drawStatusChart([$('#kpi-available').textContent, $('#kpi-inuse').textContent, $('#kpi-maint').textContent]);
@@ -259,6 +297,7 @@ function renderAssets() {
 
   gridContainer.innerHTML = list.length ? list.map(a => {
     const { latest } = getLatestInspection(a.id);
+    const rate = parseFloat(a.hourly_rate || 0);
     let inspHtml = '<span class="v" style="color:var(--text-muted); font-size:11px;">No Data</span>';
     if (latest) {
       const days = Math.ceil((new Date(latest.next_annual_due) - new Date()) / 86400000);
@@ -267,21 +306,21 @@ function renderAssets() {
       else inspHtml = `<span class="v" style="color:var(--green);font-weight:700;">Valid</span>`;
     }
 
-    const imgStyle = a.image_data ? `background-image: url(${a.image_data}); background-size: cover; background-position: center;` : 'background: #f1f5f9; display:flex; align-items:center; justify-content:center;';
+    const imgStyle = a.image_data ? `background-image: url(${esc(a.image_data)}); background-size: cover; background-position: center;` : 'background: #f1f5f9; display:flex; align-items:center; justify-content:center;';
 
     if (assetViewMode === 'list') {
       const imgContentSmall = a.image_data ? '' : `<span style="font-size: 24px; opacity: 0.25;">${typeIcon(a.type)}</span>`;
       return `
-      <div style="display:flex; align-items:center; background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px; gap:16px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.02); transition: transform 0.2s;" onclick="showDetail('${a.id}')" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+      <div style="display:flex; align-items:center; background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px; gap:16px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.02); transition: transform 0.2s;" onclick="showDetail('${esc(a.id)}')" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
           <div style="width:90px; height:70px; border-radius:6px; flex-shrink:0; border:1px solid var(--border); ${imgStyle}">${imgContentSmall}</div>
           <div style="flex-grow:1; display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:12px; align-items:center;">
               <div>
-                  <div style="font-weight: 800; font-size: 15px; color: var(--text-main); margin-bottom: 2px;">${a.plate_number}</div>
-                  <div style="font-size: 12px; color: var(--text-muted); font-weight: 600;">${typeIcon(a.type)} ${a.type} &bull; ${a.name}</div>
+                  <div style="font-weight: 800; font-size: 15px; color: var(--text-main); margin-bottom: 2px;">${esc(a.plate_number)}</div>
+                  <div style="font-size: 12px; color: var(--text-muted); font-weight: 600;">${typeIcon(a.type)} ${esc(a.type)} &bull; ${esc(a.name)}</div>
               </div>
               <div>
                   <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Location</div>
-                  <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${a.current_location || '—'}</div>
+                  <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${esc(a.current_location || '—')}</div>
               </div>
               <div>
                   <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Safety Status</div>
@@ -289,14 +328,14 @@ function renderAssets() {
               </div>
               <div style="display:flex; flex-direction:column; align-items:flex-end;">
                   ${statusBadge(a.status)}
-                  <div style="font-weight:800; color:var(--green); font-size:14px; margin-top:4px;">$${parseInt(a.hourly_rate)}<span style="font-size:11px; font-weight:600; color:var(--text-muted);">/hr</span></div>
+                  <div style="font-weight:800; color:var(--green); font-size:14px; margin-top:4px;">$${rate}<span style="font-size:11px; font-weight:600; color:var(--text-muted);">/hr</span></div>
               </div>
           </div>
       </div>`;
     }
 
     const imgContent = a.image_data ? '' : `<span style="font-size: 44px; opacity: 0.25;">${typeIcon(a.type)}</span>`;
-    return `<div class="asset-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column; cursor:pointer; border:1px solid var(--border); border-radius:12px; box-shadow:0 2px 6px rgba(0,0,0,0.03);" onclick="showDetail('${a.id}')"><div style="height: 150px; width: 100%; border-bottom: 1px solid var(--border); ${imgStyle}">${imgContent}</div><div style="padding: 16px;"><div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 12px;"><div><div style="font-weight: 800; font-size: 16px; color: var(--text-main); margin-bottom: 2px;">${a.plate_number}</div><div style="font-size: 12px; color: var(--text-muted); font-weight: 600;">${typeIcon(a.type)} ${a.type} &bull; <span style="color:var(--primary);">${a.name}</span></div></div>${statusBadge(a.status)}</div><div style="display:flex; flex-direction:column; gap:6px; margin-top: 12px; font-size:12px;"><div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Rate</span><span style="font-weight:700; color:var(--green);">$${parseInt(a.hourly_rate)}/hr</span></div><div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Location</span><span style="font-weight:600; color:var(--text-main);">${a.current_location || '—'}</span></div><div style="display:flex; justify-content:space-between; border-top:1px dashed var(--border); padding-top:8px; margin-top:2px;"><span style="color:var(--text-muted);">Safety Status</span>${inspHtml}</div></div></div></div>`;
+    return `<div class="asset-card" style="padding:0; overflow:hidden; display:flex; flex-direction:column; cursor:pointer; border:1px solid var(--border); border-radius:12px; box-shadow:0 2px 6px rgba(0,0,0,0.03);" onclick="showDetail('${esc(a.id)}')"><div style="height: 150px; width: 100%; border-bottom: 1px solid var(--border); ${imgStyle}">${imgContent}</div><div style="padding: 16px;"><div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 12px;"><div><div style="font-weight: 800; font-size: 16px; color: var(--text-main); margin-bottom: 2px;">${esc(a.plate_number)}</div><div style="font-size: 12px; color: var(--text-muted); font-weight: 600;">${typeIcon(a.type)} ${esc(a.type)} &bull; <span style="color:var(--primary);">${esc(a.name)}</span></div></div>${statusBadge(a.status)}</div><div style="display:flex; flex-direction:column; gap:6px; margin-top: 12px; font-size:12px;"><div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Rate</span><span style="font-weight:700; color:var(--green);">$${rate}/hr</span></div><div style="display:flex; justify-content:space-between;"><span style="color:var(--text-muted);">Location</span><span style="font-weight:600; color:var(--text-main);">${esc(a.current_location || '—')}</span></div><div style="display:flex; justify-content:space-between; border-top:1px dashed var(--border); padding-top:8px; margin-top:2px;"><span style="color:var(--text-muted);">Safety Status</span>${inspHtml}</div></div></div></div>`;
   }).join('') : '<div class="muted" style="grid-column: 1 / -1; text-align: center; padding: 40px; font-size: 14px;">No matching vehicles found.</div>';
 }
 
@@ -309,8 +348,8 @@ function renderReservations() {
   tbody.innerHTML = list.length ? list.map(r => {
     const a = getAsset(r.assetId); if (!a) return '';
     const st = reservationStatus(r);
-    const actionsHtml = canEdit ? `<div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openEditReservation('${r.id}')">✏️</button><button class="btn btn-ghost btn-sm" onclick="deleteReservation('${r.id}')">🗑️</button></div>` : '—';
-    return `<tr><td><div class="cell-strong">${typeIcon(a.type)} ${a.plate_number}</div><div class="muted small">${a.name}</div></td><td>${r.operatorName || '—'}</td><td>${fmtDate(r.startTime)}</td><td>${fmtDate(r.endTime)}</td><td class="cell-strong">${hoursBetween(r.startTime, r.endTime).toFixed(1)} h</td><td>${r.purpose}</td><td><span class="badge badge-${st === 'active' ? 'in-use' : st === 'upcoming' ? 'available' : 'maintenance'}">${st}</span></td><td>${actionsHtml}</td></tr>`;
+    const actionsHtml = canEdit ? `<div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openEditReservation('${esc(r.id)}')">✏️</button><button class="btn btn-ghost btn-sm" onclick="deleteReservation('${esc(r.id)}')">🗑️</button></div>` : '—';
+    return `<tr><td><div class="cell-strong">${typeIcon(a.type)} ${esc(a.plate_number)}</div><div class="muted small">${esc(a.name)}</div></td><td>${esc(r.operatorName || '—')}</td><td>${fmtDate(r.startTime)}</td><td>${fmtDate(r.endTime)}</td><td class="cell-strong">${hoursBetween(r.startTime, r.endTime).toFixed(1)} h</td><td>${esc(r.purpose)}</td><td><span class="badge badge-${st === 'active' ? 'in-use' : st === 'upcoming' ? 'available' : 'maintenance'}">${st}</span></td><td>${actionsHtml}</td></tr>`;
   }).join('') : '<tr><td colspan="8" class="muted" style="text-align:center;">No reservation sheets.</td></tr>';
 }
 
@@ -334,7 +373,7 @@ function renderCalendar() {
     const evHtml = dayRes.slice(0, 3).map((r, i) => {
       const a = getAsset(r.assetId);
       const operator = r.operatorName || 'Unknown';
-      return a ? `<div class="cal-event ${['', 'green', 'blue'][i % 3]}" onclick="showDetail('${a.id}')" title="${a.plate_number} reserved by ${operator}">${typeIcon(a.type)} ${a.plate_number} &bull; ${operator}</div>` : '';
+      return a ? `<div class="cal-event ${['', 'green', 'blue'][i % 3]}" onclick="showDetail('${esc(a.id)}')" title="${esc(a.plate_number)} reserved by ${esc(operator)}">${typeIcon(a.type)} ${esc(a.plate_number)} &bull; ${esc(operator)}</div>` : '';
     }).join('');
     html += `<div class="cal-cell ${check.toDateString() === new Date().toDateString() ? 'today' : ''}"><div class="cal-num">${d}</div>${evHtml}</div>`;
   }
@@ -365,19 +404,19 @@ function renderLiveMap() {
         const c = a.status === 'in-use' ? '#d97706' : a.status === 'maintenance' ? '#dc2626' : '#16a34a';
         const iconHtml = `<div style="background:${c}; width:36px; height:36px; border-radius:50%; display:grid; place-items:center; border:3px solid white; color:white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); font-size:18px; transition: transform 0.2s;">${typeIcon(a.type)}</div>`;
         const imgStr = a.image_data
-          ? `<img src="${a.image_data}" style="width:100%; height:110px; object-fit:cover; border-radius:6px; margin-bottom:12px; display:block; border:1px solid var(--border);" />`
+          ? `<img src="${esc(a.image_data)}" style="width:100%; height:110px; object-fit:cover; border-radius:6px; margin-bottom:12px; display:block; border:1px solid var(--border);" />`
           : `<div style="width:100%; height:90px; background:#f1f5f9; border-radius:6px; margin-bottom:12px; display:grid; place-items:center; color:#94a3b8; font-size:28px;">${typeIcon(a.type)}</div>`;
 
         const popupContent = `
           <div style="width: 230px; font-family: 'Inter', sans-serif;">
             ${imgStr}
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <div style="font-weight:800; font-size:16px; color:var(--text-main); margin:0;">${a.plate_number}</div>
+              <div style="font-weight:800; font-size:16px; color:var(--text-main); margin:0;">${esc(a.plate_number)}</div>
               ${statusBadge(a.status)}
             </div>
-            <div style="font-size:12px; color:var(--text-muted); font-weight:600; margin-bottom: 6px;">${a.type} &bull; ${a.name}</div>
-            <div style="font-size:11px; color:var(--text-muted); margin-bottom: 14px; display:flex; align-items:center; gap:4px;"><span>📍</span> ${a.current_location || 'Unknown Zone'}</div>
-            <button class="btn btn-primary" style="width:100%; padding:8px; font-size:13px; font-weight:600; border-radius:6px; margin:0;" onclick="showDetail('${a.id}')">View Full Specs</button>
+            <div style="font-size:12px; color:var(--text-muted); font-weight:600; margin-bottom: 6px;">${esc(a.type)} &bull; ${esc(a.name)}</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom: 14px; display:flex; align-items:center; gap:4px;"><span>📍</span> ${esc(a.current_location || 'Unknown Zone')}</div>
+            <button class="btn btn-primary" style="width:100%; padding:8px; font-size:13px; font-weight:600; border-radius:6px; margin:0;" onclick="showDetail('${esc(a.id)}')">View Full Specs</button>
           </div>`;
 
         L.marker([a.latitude, a.longitude], {
@@ -392,7 +431,7 @@ function renderLiveMap() {
 
 function renderScan() {
   const qrGrid = $('#qr-grid'); if (!qrGrid) return;
-  qrGrid.innerHTML = assets.map(a => `<div class="qr-card" style="display:flex; flex-direction:column; align-items:center;"><div class="qr-box" id="qr-target-${a.id}" onclick="simulateScan('${a.id}')" style="cursor:pointer;"></div><div class="qr-name" style="margin-bottom: 12px;">${typeIcon(a.type)} ${a.plate_number}</div><button class="btn btn-ghost btn-sm" style="width:100%; border: 1px solid var(--border); color: var(--primary);" onclick="downloadHighResQR('${a.id}', '${a.plate_number}')">⬇️ Download High-Res</button></div>`).join('');
+  qrGrid.innerHTML = assets.map(a => `<div class="qr-card" style="display:flex; flex-direction:column; align-items:center;"><div class="qr-box" id="qr-target-${esc(a.id)}" onclick="simulateScan('${esc(a.id)}')" style="cursor:pointer;"></div><div class="qr-name" style="margin-bottom: 12px;">${typeIcon(a.type)} ${esc(a.plate_number)}</div><button class="btn btn-ghost btn-sm" style="width:100%; border: 1px solid var(--border); color: var(--primary);" onclick="downloadHighResQR('${esc(a.id)}', '${esc(a.plate_number)}')">⬇️ Download High-Res</button></div>`).join('');
   assets.forEach(a => {
     const el = $('#qr-target-' + a.id);
     if (el) { el.innerHTML = ''; new QRCode(el, { text: `${window.location.origin}/#scan=${a.id}`, width: 110, height: 110, colorDark: '#0f1626', colorLight: '#ffffff' }); }
@@ -419,31 +458,31 @@ function simulateScan(assetId) {
   const a = getAsset(assetId); if (!a) return;
   const { latest: insp } = getLatestInspection(assetId);
 
-  const safeOwner = a.owner || (insp ? insp.owner : '—');
-  const safeBrand = a.brand || (insp ? insp.brand : '—');
-  const safeSerial = a.serial_no || (insp ? insp.serial_no : '—');
-  const safeEngine = a.engine_no || (insp ? insp.engine_no : '—');
-  const safeYear = a.manufacturer_year || (insp ? insp.manufacturer_year : '—');
+  const safeOwner = esc(a.owner || (insp ? insp.owner : '—'));
+  const safeBrand = esc(a.brand || (insp ? insp.brand : '—'));
+  const safeSerial = esc(a.serial_no || (insp ? insp.serial_no : '—'));
+  const safeEngine = esc(a.engine_no || (insp ? insp.engine_no : '—'));
+  const safeYear = esc(a.manufacturer_year || (insp ? insp.manufacturer_year : '—'));
 
   let inspHtml = '<div style="margin-top:16px;padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;text-align:center;"><span style="color:var(--red);font-weight:700;">⚠️ No Pre-Mobilization Inspection on Record</span></div>';
   if (insp) {
     const days = Math.ceil((new Date(insp.next_annual_due) - new Date()) / 86400000);
     const color = days < 0 || insp.status === 'Rejected' ? 'var(--red)' : days <= 30 ? 'var(--amber)' : 'var(--green)';
-    const conditionalHtml = insp.status === 'Conditional' && insp.remarks ? `<div style="display: flex; flex-direction: column; margin-bottom: 8px; background: #fffbeb; padding: 8px; border-radius: 6px; border: 1px solid #fcd34d;"><span style="font-size: 11px; color: #b45309; font-weight: 800; text-transform: uppercase;">⚠️ Minor Fix Required:</span><span style="font-size: 12px; color: var(--text-main); font-weight: 600; margin-top: 2px;">${insp.remarks}</span></div>` : '';
-    inspHtml = `<div style="margin-top: 16px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; text-align: left; background: #f8fafc; width: 100%;"><div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">🛡️ Equipment & Safety Specs</div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Status:</span><span style="font-size: 12px; font-weight: 800; color: ${color};">${insp.status.toUpperCase()}</span></div>${conditionalHtml}<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Owner:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeOwner}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Brand / Model:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeBrand} ${a.name} (${safeYear})</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Serial No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeSerial}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Engine No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeEngine}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Location:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${a.current_location}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspection Date:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.inspection_date)}</span></div><div style="display: flex; justify-content: space-between;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Valid Until:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.next_annual_due)}</span></div><div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspected By:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${insp.inspected_by}</span></div></div>`;
+    const conditionalHtml = insp.status === 'Conditional' && insp.remarks ? `<div style="display: flex; flex-direction: column; margin-bottom: 8px; background: #fffbeb; padding: 8px; border-radius: 6px; border: 1px solid #fcd34d;"><span style="font-size: 11px; color: #b45309; font-weight: 800; text-transform: uppercase;">⚠️ Minor Fix Required:</span><span style="font-size: 12px; color: var(--text-main); font-weight: 600; margin-top: 2px;">${esc(insp.remarks)}</span></div>` : '';
+    inspHtml = `<div style="margin-top: 16px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; text-align: left; background: #f8fafc; width: 100%;"><div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">🛡️ Equipment & Safety Specs</div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Status:</span><span style="font-size: 12px; font-weight: 800; color: ${color};">${esc(insp.status.toUpperCase())}</span></div>${conditionalHtml}<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Owner:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeOwner}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Brand / Model:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeBrand} ${esc(a.name)} (${safeYear})</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Serial No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeSerial}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Engine No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeEngine}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Location:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${esc(a.current_location)}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspection Date:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.inspection_date)}</span></div><div style="display: flex; justify-content: space-between;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Valid Until:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.next_annual_due)}</span></div><div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspected By:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${esc(insp.inspected_by)}</span></div></div>`;
   }
 
-  const imageHtml = a.image_data ? `<img src="${a.image_data}" style="width:100%; height:180px; object-fit:cover; border-radius:8px; margin-bottom:12px; display:block;" alt="Vehicle Photo" />` : `<div style="width:100%; height:120px; background:#f1f5f9; border-radius:8px; display:grid; place-items:center; margin-bottom:12px; color:#94a3b8; font-weight:600;">No Photo Uploaded</div>`;
-  const canReserve = currentUser && (currentUser.role === 'site_manager' || currentUser.role === 'field_engineer');
-  const reserveBtn = canReserve ? `<button class="btn btn-primary" style="width:100%; margin-bottom: 8px;" onclick="closeModal('modal-scan');openReserveFor('${a.id}')">+ Reserve This Vehicle</button>` : '';
+  const imageHtml = a.image_data ? `<img src="${esc(a.image_data)}" style="width:100%; height:180px; object-fit:cover; border-radius:8px; margin-bottom:12px; display:block;" alt="Vehicle Photo" />` : `<div style="width:100%; height:120px; background:#f1f5f9; border-radius:8px; display:grid; place-items:center; margin-bottom:12px; color:#94a3b8; font-weight:600;">No Photo Uploaded</div>`;
+  const canReserve = currentUser && (currentUser.role === 'site_manager' || currentUser.role === 'field_engineer') && a.status !== 'maintenance';
+  const reserveBtn = canReserve ? `<button class="btn btn-primary" style="width:100%; margin-bottom: 8px;" onclick="closeModal('modal-scan');openReserveFor('${esc(a.id)}')">+ Reserve This Vehicle</button>` : '';
 
-  $('#scan-body').innerHTML = `<div class="scan-result" style="max-height: 75vh; overflow-y: auto; padding-right: 6px;">${imageHtml}<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;"><div class="scan-status-pill ${statusPillClass(a.status)}" style="margin:0;"><span class="scan-status-dot"></span>${a.status.toUpperCase()}</div><div style="font-size: 13px; font-weight: 700; color: var(--primary); background: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">ID: ${a.plate_number}</div></div><div class="scan-vehicle-name" style="margin-bottom: 16px; font-size: 18px;">${typeIcon(a.type)} ${a.type} &bull; ${a.name}</div>${reserveBtn}${inspHtml}</div>`;
+  $('#scan-body').innerHTML = `<div class="scan-result" style="max-height: 75vh; overflow-y: auto; padding-right: 6px;">${imageHtml}<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;"><div class="scan-status-pill ${statusPillClass(a.status)}" style="margin:0;"><span class="scan-status-dot"></span>${esc(a.status.toUpperCase())}</div><div style="font-size: 13px; font-weight: 700; color: var(--primary); background: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">ID: ${esc(a.plate_number)}</div></div><div class="scan-vehicle-name" style="margin-bottom: 16px; font-size: 18px;">${typeIcon(a.type)} ${esc(a.type)} &bull; ${esc(a.name)}</div>${reserveBtn}${inspHtml}</div>`;
 
   closeModal('modal-auth');
   openModal('modal-scan');
 
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  if (isMobile && navigator.geolocation) {
+  if (currentUser && isMobile && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -455,7 +494,8 @@ function simulateScan(assetId) {
         } catch (geoErr) { console.log('Reverse geocoding skipped'); }
 
         await fetch(`${API_BASE_URL}/assets/${assetId}/location`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
           body: JSON.stringify({ latitude: lat, longitude: lon, locationName: locName })
         });
         toast(`📍 Location updated to: ${locName}`);
@@ -470,9 +510,10 @@ function renderReportsView() {
   tbody.innerHTML = assets.map(a => {
     const logs = reservations.filter(r => r.assetId === a.id);
     let h = 0; logs.forEach(r => h += hoursBetween(r.startTime, r.endTime));
-    const c = h * (parseFloat(a.hourly_rate) || 0);
+    const rate = parseFloat(a.hourly_rate || 0);
+    const c = h * rate;
     cost += c; hrs += h; count += logs.length;
-    return `<tr><td>${a.plate_number}</td><td>${a.type}</td><td>$${a.hourly_rate}</td><td>${logs.length}</td><td>${h.toFixed(1)}</td><td>$${c.toFixed(2)}</td></tr>`;
+    return `<tr><td>${esc(a.plate_number)}</td><td>${esc(a.type)}</td><td>$${rate}</td><td>${logs.length}</td><td>${h.toFixed(1)}</td><td>$${c.toFixed(2)}</td></tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;">No data.</td></tr>';
 
   if ($('#rep-kpi-cost')) $('#rep-kpi-cost').textContent = `$${cost.toFixed(2)}`;
@@ -501,8 +542,8 @@ function renderInspections() {
     else if (days <= 30) { dC++; badge = `<span class="badge badge-in-use">DUE SOON</span>`; }
     else { sC++; badge = `<span class="badge badge-available">VALID</span>`; }
 
-    const updateBtn = canEdit ? `<button class="btn btn-ghost btn-sm" onclick="openAnnualRenewalModal('${i.asset_id}')">🔄 Update</button>` : '—';
-    return `<tr><td>${mID}</td><td>${i.owner}</td><td>${i.brand} ${i.model}</td><td>S/N: ${i.serial_no}</td><td>${i.manufacturer_year}</td><td>${i.inspection_location}</td><td>${fmtDateShort(i.inspection_date)}</td><td>${badge}</td><td>${updateBtn}</td></tr>`;
+    const updateBtn = canEdit ? `<button class="btn btn-ghost btn-sm" onclick="openAnnualRenewalModal('${esc(i.asset_id)}')">🔄 Update</button>` : '—';
+    return `<tr><td>${esc(mID)}</td><td>${esc(i.owner)}</td><td>${esc(i.brand)} ${esc(i.model)}</td><td>S/N: ${esc(i.serial_no)}</td><td>${esc(i.manufacturer_year)}</td><td>${esc(i.inspection_location)}</td><td>${fmtDateShort(i.inspection_date)}</td><td>${badge}</td><td>${updateBtn}</td></tr>`;
   }).join('') || '<tr><td colspan="9" style="text-align:center;">No records.</td></tr>';
 
   if ($('#insp-kpi-valid')) $('#insp-kpi-valid').textContent = sC;
@@ -535,7 +576,7 @@ function openInspectionModal() {
   $('#form-inspection').reset();
   window.toggleRemarksField('Cleared');
   $('#insp-modal-title').textContent = 'Safety Inspection';
-  $('#form-inspection [name=assetId]').innerHTML = assets.map(a => `<option value="${a.id}">${a.plate_number} (${a.type} - ${a.name})</option>`).join('');
+  $('#form-inspection [name=assetId]').innerHTML = assets.map(a => `<option value="${esc(a.id)}">${esc(a.plate_number)} (${esc(a.type)} - ${esc(a.name)})</option>`).join('');
   $('#form-inspection [name=inspectionDate]').value = new Date().toISOString().split('T')[0];
   if (assets.length > 0) window.updateInspectionImage(assets[0].id);
   openModal('modal-inspection');
@@ -546,7 +587,7 @@ function openAnnualRenewalModal(id) {
   const a = getAsset(id);
   $('#form-inspection').reset();
   $('#insp-modal-title').textContent = 'Annual Renewal';
-  $('#form-inspection [name=assetId]').innerHTML = `<option value="${r.asset_id}">${a ? a.plate_number + ' (' + a.type + ' - ' + a.name + ')' : r.asset_id}</option>`;
+  $('#form-inspection [name=assetId]').innerHTML = `<option value="${esc(r.asset_id)}">${a ? esc(a.plate_number) + ' (' + esc(a.type) + ' - ' + esc(a.name) + ')' : esc(r.asset_id)}</option>`;
   window.updateInspectionImage(r.asset_id);
   ['owner', 'brand', 'model', 'serialNo', 'engineNo', 'manufacturerYear', 'inspectionLocation'].forEach(k => $('#form-inspection [name=' + k + ']').value = r[k.replace(/[A-Z]/g, m => '_' + m.toLowerCase())]);
   $('#form-inspection [name=status]').value = r.status || 'Cleared';
@@ -567,71 +608,47 @@ document.addEventListener('DOMContentLoaded', () => {
   if (dd) dd.addEventListener('change', e => window.toggleRemarksField(e.target.value));
 });
 
+// Safety Inspection (Multipart PDF)
 if ($('#form-inspection')) {
-  $('#form-inspection').addEventListener('submit', async e => {
+  $('#form-inspection').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
     const fileInput = $('#inspection-report-upload');
-    const submitInspection = async (reportDocStr) => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/inspections`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-          body: JSON.stringify({
-            assetId: f.get('assetId'), owner: f.get('owner'), brand: f.get('brand'), model: f.get('model'),
-            serialNo: f.get('serialNo'), engineNo: f.get('engineNo'), manufacturerYear: f.get('manufacturerYear'),
-            inspectionLocation: f.get('inspectionLocation'), inspectionDate: f.get('inspectionDate'),
-            inspectedBy: f.get('inspectedBy'), status: f.get('status'), remarks: f.get('remarks'),
-            reportDoc: reportDocStr
-          })
-        });
-        if (handleAuthError(res)) return;
-        if (!res.ok) throw new Error('Save failed');
-        closeModal('modal-inspection'); load(); toast('✅ Safety Inspection Logged!');
-      } catch (err) { toast('⚠️ Error saving inspection.'); }
-    };
-    if (fileInput && fileInput.files.length > 0) {
-      const reader = new FileReader();
-      reader.readAsDataURL(fileInput.files[0]);
-      reader.onload = () => submitInspection(reader.result);
-    } else {
-      submitInspection(null);
+    if (fileInput && fileInput.files.length > 0) f.set('reportDoc', fileInput.files[0]);
+    try {
+      const res = await fetch(`${API_BASE_URL}/inspections`, { method: 'POST', headers: getAuthHeader(), body: f });
+      if (handleAuthError(res)) return;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      closeModal('modal-inspection'); load(); toast('✅ Safety Inspection Logged!');
+    } catch (err) {
+      alert('Inspection Error: ' + err.message);
+      toast('⚠️ Error saving inspection.');
     }
   });
 }
 
 function openAddVehicleModal() { $('#form-add-asset').reset(); openModal('modal-add-asset'); }
+
+// Add Vehicle (Multipart)
 $('#form-add-asset').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
   const fileInput = $('#asset-image-upload');
-  if (fileInput.files.length > 0) {
-    const reader = new FileReader();
-    reader.readAsDataURL(fileInput.files[0]);
-    reader.onload = async () => { await submitAsset(f, reader.result); };
-  } else {
-    await submitAsset(f, null);
-  }
-});
-
-async function submitAsset(f, imageData) {
-  const payload = {
-    name: f.get('name'), type: f.get('type'), plateNumber: f.get('plateNumber'),
-    hourlyRate: f.get('hourlyRate') || 0, location: f.get('location'),
-    owner: f.get('owner'), brand: f.get('brand'), serialNo: f.get('serialNo'), engineNo: f.get('engineNo'),
-    manufacturerYear: f.get('manufacturerYear') || null,
-    latitude: 21.692153, longitude: 91.867748, imageData
-  };
+  if (fileInput && fileInput.files.length > 0) f.set('image', fileInput.files[0]);
+  f.set('latitude', '21.692153');
+  f.set('longitude', '91.867748');
   try {
-    const res = await fetch(`${API_BASE_URL}/assets`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
+    const res = await fetch(`${API_BASE_URL}/assets`, { method: 'POST', headers: getAuthHeader(), body: f });
     if (handleAuthError(res)) return;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     closeModal('modal-add-asset'); load(); toast('✅ Vehicle Saved!');
   } catch (err) {
     alert('Save Error: ' + err.message);
-    toast('Error saving vehicle.');
+    toast('⚠️ Error saving vehicle.');
   }
-}
+});
 
 function openEditAssetModal(id) {
   const a = getAsset(id); if (!a) return;
@@ -640,7 +657,7 @@ function openEditAssetModal(id) {
   $('#edit-asset-name').value = a.name;
   $('#edit-asset-type').value = a.type;
   $('#edit-asset-plate').value = a.plate_number;
-  $('#edit-asset-rate').value = parseInt(a.hourly_rate);
+  $('#edit-asset-rate').value = parseFloat(a.hourly_rate || 0);
   $('#edit-asset-location').value = a.current_location || '';
   if ($('#edit-asset-owner')) $('#edit-asset-owner').value = a.owner || (insp ? insp.owner : '');
   if ($('#edit-asset-brand')) $('#edit-asset-brand').value = a.brand || (insp ? insp.brand : '');
@@ -651,46 +668,24 @@ function openEditAssetModal(id) {
   closeModal('modal-detail'); openModal('modal-edit-asset');
 }
 
+// Edit Vehicle (Multipart)
 $('#form-edit-asset').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
-  const fileInput = $('#edit-asset-image-upload');
   const assetId = f.get('assetId');
-  if (fileInput.files.length > 0) {
-    const reader = new FileReader();
-    reader.readAsDataURL(fileInput.files[0]);
-    reader.onload = async () => { await submitAssetEdit(assetId, f, reader.result); };
-  } else {
-    await submitAssetEdit(assetId, f, null);
-  }
-});
-
-async function submitAssetEdit(id, f, imageData) {
-  const payload = {
-    name: f.get('name'), type: f.get('type'), plateNumber: f.get('plateNumber'),
-    hourlyRate: f.get('hourlyRate') || 0, location: f.get('location'),
-    owner: f.get('owner'), brand: f.get('brand'), serialNo: f.get('serialNo'),
-    engineNo: f.get('engineNo'), manufacturerYear: f.get('manufacturerYear') || null
-  };
-  if (imageData) payload.imageData = imageData;
+  const fileInput = $('#edit-asset-image-upload');
+  if (fileInput && fileInput.files.length > 0) f.set('image', fileInput.files[0]);
   try {
-    const res = await fetch(`${API_BASE_URL}/assets/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-      body: JSON.stringify(payload)
-    });
+    const res = await fetch(`${API_BASE_URL}/assets/${assetId}`, { method: 'PUT', headers: getAuthHeader(), body: f });
     if (handleAuthError(res)) return;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    closeModal('modal-edit-asset');
-    load();
-    toast('✅ Vehicle profile updated!');
+    closeModal('modal-edit-asset'); load(); toast('✅ Vehicle profile updated!');
   } catch (err) {
-    console.error('Update failed:', err);
     alert('Update Error: ' + err.message);
     toast('⚠️ Error updating vehicle.');
   }
-}
+});
 
 async function deleteAsset(id) {
   if (!confirm('🚨 WARNING: This will permanently delete this vehicle, along with its inspection history and reservations. Continue?')) return;
@@ -726,11 +721,11 @@ function showDetail(id) {
   const { latest: insp, history: assetHistory } = getLatestInspection(a.id);
   $('#detail-title').textContent = a.plate_number;
 
-  const safeOwner = a.owner || (insp ? insp.owner : '—');
-  const safeBrand = a.brand || (insp ? insp.brand : '—');
-  const safeSerial = a.serial_no || (insp ? insp.serial_no : '—');
-  const safeEngine = a.engine_no || (insp ? insp.engine_no : '—');
-  const safeYear = a.manufacturer_year || (insp ? insp.manufacturer_year : '—');
+  const safeOwner = esc(a.owner || (insp ? insp.owner : '—'));
+  const safeBrand = esc(a.brand || (insp ? insp.brand : '—'));
+  const safeSerial = esc(a.serial_no || (insp ? insp.serial_no : '—'));
+  const safeEngine = esc(a.engine_no || (insp ? insp.engine_no : '—'));
+  const safeYear = esc(a.manufacturer_year || (insp ? insp.manufacturer_year : '—'));
 
   const activeResList = reservations
     .filter(r => r.assetId === a.id && ['active', 'upcoming'].includes(reservationStatus(r)))
@@ -749,8 +744,8 @@ function showDetail(id) {
           ${resStatus === 'active' ? '🚧 Currently Reserved & In Use' : '📅 Upcoming Reservation'}
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;">
-          <div><span style="color: var(--text-muted); font-size: 11px; display:block; margin-bottom:2px;">Operator</span><span style="font-weight: 700; color: var(--text-main);">${activeRes.operatorName}</span></div>
-          <div><span style="color: var(--text-muted); font-size: 11px; display:block; margin-bottom:2px;">Purpose</span><span style="font-weight: 700; color: var(--text-main);">${activeRes.purpose}</span></div>
+          <div><span style="color: var(--text-muted); font-size: 11px; display:block; margin-bottom:2px;">Operator</span><span style="font-weight: 700; color: var(--text-main);">${esc(activeRes.operatorName)}</span></div>
+          <div><span style="color: var(--text-muted); font-size: 11px; display:block; margin-bottom:2px;">Purpose</span><span style="font-weight: 700; color: var(--text-main);">${esc(activeRes.purpose)}</span></div>
           <div style="grid-column: 1 / -1;"><span style="color: var(--text-muted); font-size: 11px; display:block; margin-bottom:2px;">Schedule</span><span style="font-weight: 700; color: var(--text-main);">${fmtDate(activeRes.startTime)} — ${fmtDate(activeRes.endTime)}</span></div>
         </div>
       </div>`;
@@ -758,7 +753,7 @@ function showDetail(id) {
 
   const imageHtml = a.image_data
     ? `<div style="position:relative; margin-bottom:20px;">
-         <img src="${a.image_data}" style="width:100%; height:260px; object-fit:cover; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.08); display:block;" alt="Vehicle Photo" />
+         <img src="${esc(a.image_data)}" style="width:100%; height:260px; object-fit:cover; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.08); display:block;" alt="Vehicle Photo" />
          <div style="position:absolute; top:12px; right:12px; background:white; border-radius:20px; padding:2px 4px; box-shadow:0 2px 8px rgba(0,0,0,0.15);">${statusBadge(a.status)}</div>
        </div>`
     : `<div style="width:100%; height:260px; background:#f8fafc; border-radius:12px; display:grid; place-items:center; margin-bottom:20px; color:#94a3b8; font-weight:600; border:2px dashed var(--border);">No Photo Uploaded<br/>${statusBadge(a.status)}</div>`;
@@ -766,21 +761,26 @@ function showDetail(id) {
   const canEdit = (currentUser && currentUser.role === 'site_manager');
   const canReserve = (currentUser && (currentUser.role === 'site_manager' || currentUser.role === 'field_engineer'));
 
-  const reserveBtn = canReserve ? `<button class="btn btn-primary" style="width:100%; padding:14px; font-size:15px; font-weight:600; border-radius:8px; margin-bottom:12px; box-shadow: 0 4px 6px rgba(14, 165, 233, 0.2); display:flex; justify-content:center; align-items:center; gap:6px;" onclick="closeModal('modal-detail');openReserveFor('${a.id}')">➕ Reserve This Vehicle</button>` : '';
+  let reserveBtn = '';
+  if (canReserve) {
+    reserveBtn = a.status === 'maintenance'
+      ? `<button class="btn btn-ghost" style="width:100%; padding:14px; font-size:14px; font-weight:600; border-radius:8px; margin-bottom:12px; border:1px solid var(--border); color:var(--text-muted); cursor:not-allowed;" disabled>🔧 Unavailable (Under Maintenance)</button>`
+      : `<button class="btn btn-primary" style="width:100%; padding:14px; font-size:15px; font-weight:600; border-radius:8px; margin-bottom:12px; box-shadow: 0 4px 6px rgba(14, 165, 233, 0.2); display:flex; justify-content:center; align-items:center; gap:6px;" onclick="closeModal('modal-detail');openReserveFor('${esc(a.id)}')">➕ Reserve This Vehicle</button>`;
+  }
 
   let maintenanceBtnHtml = '';
   if (canEdit) {
     if (a.status === 'maintenance') {
-      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--green); color: var(--green); background: #f0fdf4; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="toggleMaintenance('${a.id}', 'available')">✅ Mark Available</button>`;
+      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--green); color: var(--green); background: #f0fdf4; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="toggleMaintenance('${esc(a.id)}', 'available')">✅ Mark Available</button>`;
     } else if (a.status === 'available') {
-      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid #f59e0b; color: #d97706; background: #fffbeb; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="toggleMaintenance('${a.id}', 'maintenance')">🔧 Maintenance</button>`;
+      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid #f59e0b; color: #d97706; background: #fffbeb; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="toggleMaintenance('${esc(a.id)}', 'maintenance')">🔧 Maintenance</button>`;
     } else if (a.status === 'in-use') {
       maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--border); color: var(--text-muted); cursor:not-allowed; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" disabled>🔒 In Use</button>`;
     }
   }
 
-  const editBtnHtml = canEdit ? `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--border); color: var(--primary); font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="openEditAssetModal('${a.id}')">✏️ Edit Specs</button>` : '';
-  const deleteBtnHtml = canEdit ? `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid #fecaca; color: var(--red); background: #fef2f2; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="deleteAsset('${a.id}')">🗑️ Delete</button>` : '';
+  const editBtnHtml = canEdit ? `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--border); color: var(--primary); font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="openEditAssetModal('${esc(a.id)}')">✏️ Edit Specs</button>` : '';
+  const deleteBtnHtml = canEdit ? `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid #fecaca; color: var(--red); background: #fef2f2; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="deleteAsset('${esc(a.id)}')">🗑️ Delete</button>` : '';
 
   const secBtns = [maintenanceBtnHtml, editBtnHtml, deleteBtnHtml].filter(b => b !== '');
   const actionGrid = secBtns.length > 0 ? `<div style="display:flex; flex-wrap:wrap; gap:8px;">${secBtns.map(btn => `<div style="flex: 1 1 calc(50% - 8px); min-width: 120px;">${btn}</div>`).join('')}</div>` : '';
@@ -798,7 +798,7 @@ function showDetail(id) {
         <div class="${hiddenClass}" style="${displayStyle} justify-content:space-between; align-items:center; background:#f8fafc; padding:10px 12px; border-radius:8px; border:1px solid var(--border);">
           <div>
             <div style="font-weight:700; font-size:13px; color:var(--text-main);">${fmtDateShort(inst.inspection_date)}</div>
-            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">By ${inst.inspected_by} &bull; <span style="color:${inst.status === 'Cleared' ? 'var(--green)' : 'var(--red)'}; font-weight:700;">${inst.status}</span></div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">By ${esc(inst.inspected_by)} &bull; <span style="color:${inst.status === 'Cleared' ? 'var(--green)' : 'var(--red)'}; font-weight:700;">${esc(inst.status)}</span></div>
           </div>
           <div>${pdfBtn}</div>
         </div>`;
@@ -819,18 +819,18 @@ function showDetail(id) {
         <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
           <div>
             <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Equipment Type</div>
-            <div style="font-size:15px; font-weight:700; color:var(--text-main); margin-top:2px;">${typeIcon(a.type)} ${a.type} &bull; ${a.name}</div>
+            <div style="font-size:15px; font-weight:700; color:var(--text-main); margin-top:2px;">${typeIcon(a.type)} ${esc(a.type)} &bull; ${esc(a.name)}</div>
           </div>
           <div style="text-align:right;">
             <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Hourly Rate</div>
-            <div style="font-size:16px; font-weight:800; color:var(--green); margin-top:2px;">$${parseInt(a.hourly_rate)} <span style="font-size:12px; font-weight:600; color:var(--text-muted)">/hr</span></div>
+            <div style="font-size:16px; font-weight:800; color:var(--green); margin-top:2px;">$${parseFloat(a.hourly_rate || 0)} <span style="font-size:12px; font-weight:600; color:var(--text-muted)">/hr</span></div>
           </div>
         </div>
         <div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Registration & Specifications</div>
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
           <div><span style="display:block; font-size:11px; color:var(--text-muted); margin-bottom:2px;">Owner</span><span style="font-weight:700; font-size:13px; color:var(--text-main);">${safeOwner}</span></div>
           <div><span style="display:block; font-size:11px; color:var(--text-muted); margin-bottom:2px;">Brand</span><span style="font-weight:700; font-size:13px; color:var(--text-main);">${safeBrand}</span></div>
-          <div><span style="display:block; font-size:11px; color:var(--text-muted); margin-bottom:2px;">Location</span><span style="font-weight:700; font-size:13px; color:var(--text-main);">${a.current_location || '—'}</span></div>
+          <div><span style="display:block; font-size:11px; color:var(--text-muted); margin-bottom:2px;">Location</span><span style="font-weight:700; font-size:13px; color:var(--text-main);">${esc(a.current_location || '—')}</span></div>
           <div><span style="display:block; font-size:11px; color:var(--text-muted); margin-bottom:2px;">Mfg. Year</span><span style="font-weight:700; font-size:13px; color:var(--text-main);">${safeYear}</span></div>
         </div>
         <div style="background:#f1f5f9; border-radius:6px; padding:10px 12px; margin-top:16px; display:flex; justify-content:space-between; font-family:monospace; font-size:12px;">
@@ -843,7 +843,7 @@ function showDetail(id) {
       <div style="display: flex; flex-direction: column; gap: 24px; border-left: 1px solid var(--border); padding-left: 32px;">
         <div style="background:#fff; border:1px solid var(--border); border-radius:12px; padding: 20px; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.02);">
           <div id="detail-qr-target" style="margin-bottom: 12px; background: white; padding: 8px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);"></div>
-          <button class="btn btn-ghost btn-sm" style="width:100%; border: 1px solid var(--border); color: var(--primary); font-weight: 600;" onclick="downloadHighResQR('${a.id}', '${a.plate_number}')">⬇️ Download QR Link</button>
+          <button class="btn btn-ghost btn-sm" style="width:100%; border: 1px solid var(--border); color: var(--primary); font-weight: 600;" onclick="downloadHighResQR('${esc(a.id)}', '${esc(a.plate_number)}')">⬇️ Download QR Link</button>
         </div>
         <div style="flex-grow: 1;">
           <div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Safety Inspection Log</div>
@@ -947,7 +947,9 @@ window.openReserveFor = function(id) {
 
   const vehicleSelect = $('#form-reserve [name=vehicle]');
   if (vehicleSelect) {
-    vehicleSelect.innerHTML = assets.map(a => `<option value="${a.id}" ${String(a.id) === String(id) ? 'selected' : ''}>${a.plate_number} (${a.type} - ${a.name})</option>`).join('');
+    vehicleSelect.innerHTML = assets.map(a =>
+      `<option value="${esc(a.id)}" ${String(a.id) === String(id) ? 'selected' : ''} ${a.status === 'maintenance' ? 'disabled' : ''}>${esc(a.plate_number)} (${esc(a.type)} - ${esc(a.name)})${a.status === 'maintenance' ? ' [Maintenance]' : ''}</option>`
+    ).join('');
   }
 
   const now = new Date();
@@ -973,7 +975,7 @@ window.openEditReservation = function(id) {
   const a = getAsset(r.assetId);
   const vehicleSelect = $('#form-reserve [name=vehicle]');
   if (vehicleSelect) {
-    vehicleSelect.innerHTML = `<option value="${r.assetId}">${a ? a.plate_number + ' (' + a.type + ' - ' + a.name + ')' : r.assetId}</option>`;
+    vehicleSelect.innerHTML = `<option value="${esc(r.assetId)}">${a ? esc(a.plate_number) + ' (' + esc(a.type) + ' - ' + esc(a.name) + ')' : esc(r.assetId)}</option>`;
   }
 
   if ($('#form-reserve [name=operator]')) $('#form-reserve [name=operator]').value = r.operatorName;
@@ -1010,35 +1012,40 @@ if ($('#form-reserve')) {
       purpose: f.get('purpose')
     };
 
-    try {
-      if (currentEditingReservationId) {
+    if (currentEditingReservationId) {
+      try {
         const res = await fetch(`${API_BASE_URL}/reservations/${currentEditingReservationId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(p) });
         if (handleAuthError(res)) return;
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Update failed');
         closeModal('modal-reserve'); load(); toast('✅ Reservation Updated');
-        return;
+      } catch (err) {
+        alert('Reservation Error: ' + err.message);
+        toast('⚠️ Error saving reservation');
       }
+      return;
+    }
 
-      const sendReservationWithLocation = async (payload) => {
+    const sendReservationWithLocation = async (payload) => {
+      try {
         const res = await fetch(`${API_BASE_URL}/reservations`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
         if (handleAuthError(res)) return;
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Booking failed');
         closeModal('modal-reserve'); load(); toast('✅ New Reservation Created');
-      };
-
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          async pos => { await sendReservationWithLocation({ ...p, latitude: pos.coords.latitude, longitude: pos.coords.longitude }); },
-          async () => { await sendReservationWithLocation({ ...p, latitude: 21.692153, longitude: 91.867748 }); }
-        );
-      } else {
-        await sendReservationWithLocation({ ...p, latitude: 21.692153, longitude: 91.867748 });
+      } catch (err) {
+        alert('Reservation Error: ' + err.message);
+        toast('⚠️ Error saving reservation');
       }
-    } catch (err) {
-      alert('Reservation Error: ' + err.message);
-      toast('⚠️ Error saving reservation');
+    };
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => sendReservationWithLocation({ ...p, latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => sendReservationWithLocation({ ...p, latitude: 21.692153, longitude: 91.867748 })
+      );
+    } else {
+      await sendReservationWithLocation({ ...p, latitude: 21.692153, longitude: 91.867748 });
     }
   });
 }
@@ -1069,17 +1076,12 @@ function wire() {
 }
 
 const socket = io();
-socket.on('fleetUpdate', d => {
-  assets = d.assets;
-  reservations = d.reservations;
-  renderAll();
-  renderReservations();
-  renderCalendar();
-  if ($('#view-map') && !$('#view-map').classList.contains('hidden')) renderLiveMap();
-  if ($('#view-reports') && !$('#view-reports').classList.contains('hidden')) renderReportsView();
-  toast('🔄 Fleet sync!');
+socket.on('fleetUpdate', () => {
+  if (!currentUser) return;
+  load();
+  toast('🔄 Fleet synced!');
 });
-socket.on('inspectionUpdate', load);
+socket.on('inspectionUpdate', () => { if (currentUser) load(); });
 socket.on('logUpdate', () => { if (currentUser && currentUser.role === 'site_manager') load(); });
 
 wire();
