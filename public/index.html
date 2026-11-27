@@ -217,11 +217,53 @@
 
       <section class="view hidden" id="view-scan"><header class="topbar"><div><h1>Field Engineer Scan</h1></div></header><div class="card"><div class="qr-grid" id="qr-grid"></div></div></section>
       <section class="view hidden" id="view-reports"><header class="topbar"><div><h1>Operational Analytics Report</h1></div><div class="topbar-actions no-print"><button class="btn btn-primary" onclick="window.print()">🖨️ Print PDF</button></div></header><div class="stats"><div class="stat"><div class="stat-label">Total Cost</div><div class="stat-value" id="rep-kpi-cost">$0</div></div><div class="stat"><div class="stat-label">Hours</div><div class="stat-value" id="rep-kpi-hours">0 h</div></div><div class="stat"><div class="stat-label">Bookings</div><div class="stat-value" id="rep-kpi-count">0</div></div></div><div class="card table-card" style="margin-top:24px;"><table class="table"><thead><tr><th>Machine ID</th><th>Type</th><th>Rate/hr</th><th>Bookings</th><th>Hours</th><th>Expenditure</th></tr></thead><tbody id="report-tbody"></tbody></table></div></section>
-      <section class="view hidden" id="view-inspections"><header class="topbar"><div><h1>Pre-Mobilization & Annual Safety Inspection</h1></div><div class="topbar-actions"><button class="btn btn-primary" onclick="openInspectionModal()">+ New Inspection</button></div></header><div class="stats"><div class="stat stat-green"><div class="stat-label">Cleared</div><div class="stat-value" id="insp-kpi-valid">0</div></div><div class="stat stat-amber"><div class="stat-label">Due Soon</div><div class="stat-value" id="insp-kpi-soon">0</div></div><div class="stat stat-red"><div class="stat-label">Expired</div><div class="stat-value" id="insp-kpi-expired">0</div></div></div><div class="card table-card"><table class="table"><thead><tr><th>Machine ID</th><th>Owner</th><th>Brand/Model</th><th>Serial/Engine</th><th>Year</th><th>Location</th><th>Inspected</th><th>Next Check</th><th></th></tr></thead><tbody id="inspection-tbody"></tbody></table></div></section>
+
+      <section class="view hidden" id="view-inspections">
+  <header class="topbar">
+    <div><h1>Pre-Mobilization & Annual Safety Inspection</h1></div>
+    <div class="topbar-actions" style="display:flex; gap:12px; align-items:center;">
+      <div class="search">
+        <span>⌕</span>
+        <input id="insp-search" type="text" placeholder="Search ID, owner, brand, S/N..." />
+      </div>
+      <button class="btn btn-primary" onclick="openInspectionModal()">+ New Inspection</button>
+    </div>
+  </header>
+
+        <div class="stats">
+            <div class="stat stat-green"><div class="stat-label">Cleared</div><div class="stat-value" id="insp-kpi-valid">0</div></div>
+            <div class="stat stat-amber"><div class="stat-label">Due Soon</div><div class="stat-value" id="insp-kpi-soon">0</div></div>
+            <div class="stat stat-red"><div class="stat-label">Expired</div><div class="stat-value" id="insp-kpi-expired">0</div></div>
+            <div class="stat" style="border-left: 4px solid #64748b;"><div class="stat-label">No Record</div><div class="stat-value" id="insp-kpi-none">0</div></div>
+          </div>
+
+  <!-- Status Filter Chips -->
+  <div id="insp-filters" class="chips" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+    <button class="chip active" data-ifilter="all">All Vehicles</button>
+    <button class="chip" data-ifilter="valid">Valid</button>
+    <button class="chip" data-ifilter="soon">Due Soon</button>
+    <button class="chip" data-ifilter="expired">Expired</button>
+    <button class="chip" data-ifilter="none">No Record</button>
+  </div>
+
+  <div class="card table-card">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Machine ID</th><th>Owner</th><th>Brand/Model</th><th>Serial/Engine</th>
+          <th>Year</th><th>Location</th><th>Inspected</th><th>Next Check</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="inspection-tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+
+
 
       <section id="view-schedule" class="view hidden">
         <div style="margin-bottom: 18px;">
-          <div style="font-size: 11px; font-weight: 800; letter-spacing: 0.8px; color: #0d9488; text-transform: uppercase;">FLEET AVAILABILITY</div>
           <h1 style="margin: 2px 0 4px; font-size: 26px; font-weight: 800; color: var(--text-main);">Schedule</h1>
           <p class="muted" style="margin: 0; font-size: 13px;">Overall status &amp; individual vehicle allocation in one view</p>
         </div>

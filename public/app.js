@@ -3,10 +3,10 @@
    ============================================================ */
 const API_BASE_URL = '/api';
 let assets = [], reservations = [], inspections = [], usersList = [], activityLogs = [];
-let calMonth = new Date(), assetFilter = 'all', assetTypeFilter = 'all', resFilter = 'all';
 let charts = {}, currentUser = null, mapInstance = null, currentEditingReservationId = null;
 let assetViewMode = 'grid';
 let schedRange = 'day', schedDate = new Date(), schedTypeFilter = 'Crane';
+let calMonth = new Date(), assetFilter = 'all', assetTypeFilter = 'all', resFilter = 'all', inspFilter = 'all';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => document.querySelectorAll(sel);
@@ -942,33 +942,72 @@ function renderStatistics() {
 
 function renderInspections() {
   const tbody = $('#inspection-tbody'); if (!tbody) return;
-  let sC = 0, dC = 0, eC = 0, today = new Date();
+  let sC = 0, dC = 0, eC = 0, nC = 0, today = new Date();
   const canEdit = currentUser && (currentUser.role === 'site_manager' || currentUser.role === 'safety_team');
+  const search = ($('#insp-search')?.value || '').toLowerCase();
 
-  const latestInspections = {};
-  inspections.forEach(i => {
-    if (!latestInspections[i.asset_id] || new Date(i.inspection_date) > new Date(latestInspections[i.asset_id].inspection_date)) {
-      latestInspections[i.asset_id] = i;
+  const rows = [];
+
+  assets.forEach(a => {
+    const { latest: i } = getLatestInspection(a.id);
+
+    let statusKey = 'none';
+    let badge = `<span class="badge" style="background:#f1f5f9; color:#64748b;">NO RECORD</span>`;
+
+   if (i) {
+   const days = Math.ceil((new Date(i.next_annual_due) - today) / 86400000);
+   if (days < 0 || i.status === 'Rejected') {
+     eC++; statusKey = 'expired'; badge = `<span class="badge badge-maintenance">EXPIRED</span>`;
+   } else if (days <= 30) {
+     dC++; statusKey = 'soon'; badge = `<span class="badge badge-in-use">DUE SOON</span>`;
+   } else {
+     sC++; statusKey = 'valid'; badge = `<span class="badge badge-available">VALID</span>`;
+   }
+ } else {
+   nC++;
+ }
+
+    // Apply status filter
+    if (inspFilter !== 'all' && statusKey !== inspFilter) return;
+
+    const owner = (i?.owner || a.owner || '—');
+    const brandModel = `${i?.brand || a.brand || ''} ${i?.model || a.name || ''}`.trim() || '—';
+    const serial = (i?.serial_no || a.serial_no || '—');
+    const year = (i?.manufacturer_year || a.manufacturer_year || '—');
+    const location = (i?.inspection_location || a.current_location || '—');
+
+    // Apply search filter
+    if (search) {
+      const hay = `${a.plate_number} ${a.type} ${owner} ${brandModel} ${serial} ${location}`.toLowerCase();
+      if (!hay.includes(search)) return;
     }
+
+    const actionBtn = !canEdit ? '—' : i
+      ? `<button class="btn btn-ghost btn-sm" onclick="openAnnualRenewalModal('${esc(a.id)}')">🔄 Update</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="openInspectionModal('${esc(a.id)}')">+ Inspect</button>`;
+
+    rows.push(`
+      <tr>
+        <td><div class="cell-strong">${esc(a.plate_number)}</div></td>
+        <td>${esc(owner)}</td>
+        <td>${esc(brandModel)}</td>
+        <td>S/N: ${esc(serial)}</td>
+        <td>${esc(year)}</td>
+        <td>${esc(location)}</td>
+        <td class="${i ? '' : 'muted'}">${i ? fmtDateShort(i.inspection_date) : 'Not Yet'}</td>
+        <td>${badge}</td>
+        <td>${actionBtn}</td>
+      </tr>`);
   });
 
-  tbody.innerHTML = Object.values(latestInspections).map(i => {
-    const a = getAsset(i.asset_id);
-    const mID = a ? a.plate_number : i.asset_id;
-    const days = Math.ceil((new Date(i.next_annual_due) - today) / 86400000);
-    let badge = '';
-    if (days < 0 || i.status === 'Rejected') { eC++; badge = `<span class="badge badge-maintenance">EXPIRED</span>`; }
-    else if (days <= 30) { dC++; badge = `<span class="badge badge-in-use">DUE SOON</span>`; }
-    else { sC++; badge = `<span class="badge badge-available">VALID</span>`; }
+  tbody.innerHTML = rows.join('') || '<tr><td colspan="9" class="muted" style="text-align:center; padding:32px;">No vehicles match this filter.</td></tr>';
 
-    const updateBtn = canEdit ? `<button class="btn btn-ghost btn-sm" onclick="openAnnualRenewalModal('${esc(i.asset_id)}')">🔄 Update</button>` : '—';
-    return `<tr><td>${esc(mID)}</td><td>${esc(i.owner)}</td><td>${esc(i.brand)} ${esc(i.model)}</td><td>S/N: ${esc(i.serial_no)}</td><td>${esc(i.manufacturer_year)}</td><td>${esc(i.inspection_location)}</td><td>${fmtDateShort(i.inspection_date)}</td><td>${badge}</td><td>${updateBtn}</td></tr>`;
-  }).join('') || '<tr><td colspan="9" style="text-align:center;">No records.</td></tr>';
-
-  if ($('#insp-kpi-valid')) $('#insp-kpi-valid').textContent = sC;
-  if ($('#insp-kpi-soon')) $('#insp-kpi-soon').textContent = dC;
-  if ($('#insp-kpi-expired')) $('#insp-kpi-expired').textContent = eC;
+if ($('#insp-kpi-valid')) $('#insp-kpi-valid').textContent = sC;
+if ($('#insp-kpi-soon')) $('#insp-kpi-soon').textContent = dC;
+if ($('#insp-kpi-expired')) $('#insp-kpi-expired').textContent = eC;
+if ($('#insp-kpi-none')) $('#insp-kpi-none').textContent = nC;
 }
+
 
 window.viewPDF = function(globalIndex) {
   const inst = inspections[globalIndex];
@@ -991,13 +1030,29 @@ window.updateInspectionImage = function(assetId) {
   }
 };
 
-function openInspectionModal() {
+function openInspectionModal(preselectAssetId = null) {
   $('#form-inspection').reset();
   window.toggleRemarksField('Cleared');
   $('#insp-modal-title').textContent = 'Safety Inspection';
-  $('#form-inspection [name=assetId]').innerHTML = assets.map(a => `<option value="${esc(a.id)}">${esc(a.plate_number)} (${esc(a.type)} - ${esc(a.name)})</option>`).join('');
+  $('#form-inspection [name=assetId]').innerHTML = assets.map(a =>
+    `<option value="${esc(a.id)}" ${String(a.id) === String(preselectAssetId) ? 'selected' : ''}>${esc(a.plate_number)} (${esc(a.type)} - ${esc(a.name)})</option>`
+  ).join('');
   $('#form-inspection [name=inspectionDate]').value = new Date().toISOString().split('T')[0];
-  if (assets.length > 0) window.updateInspectionImage(assets[0].id);
+
+  const targetId = preselectAssetId || (assets.length > 0 ? assets[0].id : null);
+  if (targetId) {
+    window.updateInspectionImage(targetId);
+    const a = getAsset(targetId);
+    if (a) {
+      if (a.owner) $('#form-inspection [name=owner]').value = a.owner;
+      if (a.brand) $('#form-inspection [name=brand]').value = a.brand;
+      if (a.name) $('#form-inspection [name=model]').value = a.name;
+      if (a.serial_no) $('#form-inspection [name=serialNo]').value = a.serial_no;
+      if (a.engine_no) $('#form-inspection [name=engineNo]').value = a.engine_no;
+      if (a.manufacturer_year) $('#form-inspection [name=manufacturerYear]').value = a.manufacturer_year;
+      if (a.current_location) $('#form-inspection [name=inspectionLocation]').value = a.current_location;
+    }
+  }
   openModal('modal-inspection');
 }
 
@@ -1548,6 +1603,13 @@ function wire() {
       $('#nav-admin-submenu')?.classList.toggle('hidden');
     });
   }
+  if ($('#insp-search')) $('#insp-search').addEventListener('input', renderInspections);
+  $$('#insp-filters .chip').forEach(c => c.addEventListener('click', () => {
+    $$('#insp-filters .chip').forEach(x => x.classList.remove('active'));
+    c.classList.add('active');
+    inspFilter = c.dataset.ifilter;
+    renderInspections();
+  }));
 }
 
 const socket = io();
