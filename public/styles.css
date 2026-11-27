@@ -1303,6 +1303,14 @@ h1 {
   box-shadow: none;
   border-bottom: 1px solid #eef2f6;
 }
+.assets-sticky-head .stat {
+  padding: 14px 18px;
+}
+
+.assets-sticky-head .stat-value {
+  font-size: 26px;
+  margin: 2px 0;
+}
 
 .assets-filter-bar {
   display: flex;

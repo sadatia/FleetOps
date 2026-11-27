@@ -745,10 +745,17 @@ function downloadHighResQR(assetId, plateNumber) {
   }, 250);
 }
 
+
+window.openGuestLoginFromScan = function() {
+  closeModal('modal-scan');
+  openModal('modal-auth');
+};
+
 function simulateScan(assetId) {
   const a = getAsset(assetId); if (!a) return;
   const { latest: insp } = getLatestInspection(assetId);
 
+  const assetStatus = a.status || 'available';
   const safeOwner = esc(a.owner || (insp ? insp.owner : '—'));
   const safeBrand = esc(a.brand || (insp ? insp.brand : '—'));
   const safeSerial = esc(a.serial_no || (insp ? insp.serial_no : '—'));
@@ -757,23 +764,89 @@ function simulateScan(assetId) {
 
   let inspHtml = '<div style="margin-top:16px;padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;text-align:center;"><span style="color:var(--red);font-weight:700;">⚠️ No Pre-Mobilization Inspection on Record</span></div>';
   if (insp) {
+    const inspStatus = insp.status || 'Cleared';
     const days = Math.ceil((new Date(insp.next_annual_due) - new Date()) / 86400000);
-    const color = days < 0 || insp.status === 'Rejected' ? 'var(--red)' : days <= 30 ? 'var(--amber)' : 'var(--green)';
-    const conditionalHtml = insp.status === 'Conditional' && insp.remarks ? `<div style="display: flex; flex-direction: column; margin-bottom: 8px; background: #fffbeb; padding: 8px; border-radius: 6px; border: 1px solid #fcd34d;"><span style="font-size: 11px; color: #b45309; font-weight: 800; text-transform: uppercase;">⚠️ Minor Fix Required:</span><span style="font-size: 12px; color: var(--text-main); font-weight: 600; margin-top: 2px;">${esc(insp.remarks)}</span></div>` : '';
-    inspHtml = `<div style="margin-top: 16px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; text-align: left; background: #f8fafc; width: 100%;"><div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">🛡️ Equipment & Safety Specs</div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Status:</span><span style="font-size: 12px; font-weight: 800; color: ${color};">${esc(insp.status.toUpperCase())}</span></div>${conditionalHtml}<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Owner:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeOwner}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Brand / Model:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeBrand} ${esc(a.name)} (${safeYear})</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Serial No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeSerial}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Engine No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeEngine}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Location:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${esc(a.current_location)}</span></div><div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspection Date:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.inspection_date)}</span></div><div style="display: flex; justify-content: space-between;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Valid Until:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.next_annual_due)}</span></div><div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspected By:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${esc(insp.inspected_by)}</span></div></div>`;
+    const color = days < 0 || inspStatus === 'Rejected' ? 'var(--red)' : days <= 30 ? 'var(--amber)' : 'var(--green)';
+    const conditionalHtml = inspStatus === 'Conditional' && insp.remarks
+      ? `<div style="display: flex; flex-direction: column; margin-bottom: 8px; background: #fffbeb; padding: 8px; border-radius: 6px; border: 1px solid #fcd34d;"><span style="font-size: 11px; color: #b45309; font-weight: 800; text-transform: uppercase;">⚠️ Minor Fix Required:</span><span style="font-size: 12px; color: var(--text-main); font-weight: 600; margin-top: 2px;">${esc(insp.remarks)}</span></div>`
+      : '';
+
+    inspHtml = `
+      <div style="margin-top: 16px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; text-align: left; background: #f8fafc; width: 100%;">
+        <div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 8px;">🛡️ Equipment &amp; Safety Specs</div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Status:</span><span style="font-size: 12px; font-weight: 800; color: ${color};">${esc(inspStatus.toUpperCase())}</span></div>
+        ${conditionalHtml}
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Owner:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeOwner}</span></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Brand / Model:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${safeBrand} ${esc(a.name)} (${safeYear})</span></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Serial No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeSerial}</span></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Engine No:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main); font-family: monospace;">${safeEngine}</span></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Location:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${esc(a.current_location || '—')}</span></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspection Date:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.inspection_date)}</span></div>
+        <div style="display: flex; justify-content: space-between;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Valid Until:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${fmtDateShort(insp.next_annual_due)}</span></div>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Inspected By:</span><span style="font-size: 12px; font-weight: 700; color: var(--text-main);">${esc(insp.inspected_by || '—')}</span></div>
+      </div>`;
   }
 
-  const imageHtml = a.image_data ? `<img src="${esc(a.image_data)}" style="width:100%; height:180px; object-fit:cover; border-radius:8px; margin-bottom:12px; display:block;" alt="Vehicle Photo" />` : `<div style="width:100%; height:120px; background:#f1f5f9; border-radius:8px; display:grid; place-items:center; margin-bottom:12px; color:#94a3b8; font-weight:600;">No Photo Uploaded</div>`;
-  const canReserve = currentUser && (currentUser.role === 'site_manager' || currentUser.role === 'field_engineer') && a.status !== 'maintenance';
-  const reserveBtn = canReserve ? `<button class="btn btn-primary" style="width:100%; margin-bottom: 8px;" onclick="closeModal('modal-scan');openReserveFor('${esc(a.id)}')">+ Reserve This Vehicle</button>` : '';
+  const imageHtml = a.image_data
+    ? `<img src="${esc(a.image_data)}" style="width:100%; height:170px; object-fit:cover; border-radius:10px; margin-bottom:12px; display:block;" alt="Vehicle Photo" />`
+    : `<div style="width:100%; height:110px; background:#f1f5f9; border-radius:10px; display:grid; place-items:center; margin-bottom:12px; color:#94a3b8; font-weight:600; font-size:13px;">No Photo Uploaded</div>`;
 
-  $('#scan-body').innerHTML = `<div class="scan-result" style="max-height: 75vh; overflow-y: auto; padding-right: 6px;">${imageHtml}<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;"><div class="scan-status-pill ${statusPillClass(a.status)}" style="margin:0;"><span class="scan-status-dot"></span>${esc(a.status.toUpperCase())}</div><div style="font-size: 13px; font-weight: 700; color: var(--primary); background: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">ID: ${esc(a.plate_number)}</div></div><div class="scan-vehicle-name" style="margin-bottom: 16px; font-size: 18px;">${typeIcon(a.type)} ${esc(a.type)} &bull; ${esc(a.name)}</div>${reserveBtn}${inspHtml}</div>`;
+  // Action button: Logged-in staff see Reserve; Guests see Login for Booking
+  let actionHtml = '';
+  if (!currentUser) {
+    actionHtml = `
+      <div style="width:100%; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px; padding:12px; text-align:center; margin-bottom:4px;">
+        <button class="btn btn-primary" style="width:100%; justify-content:center; padding:11px; font-size:14px;" onclick="openGuestLoginFromScan()">
+          🔑 Login for Booking
+        </button>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">
+          Authorized personnel only &bull; Need access? Contact Site Manager
+        </div>
+      </div>`;
+  } else if ((currentUser.role === 'site_manager' || currentUser.role === 'field_engineer') && assetStatus !== 'maintenance') {
+    actionHtml = `<button class="btn btn-primary" style="width:100%; justify-content:center; margin-bottom:4px;" onclick="closeModal('modal-scan');openReserveFor('${esc(a.id)}')">+ Reserve This Vehicle</button>`;
+  }
+
+  // Optional Safety PDF button if attached
+  const inspIdx = insp ? inspections.indexOf(insp) : -1;
+  const pdfBtnHtml = (insp && insp.report_doc && inspIdx >= 0)
+    ? `<button class="btn btn-ghost btn-sm" style="width:100%; justify-content:center; margin-top:10px; border:1px solid var(--primary); color:var(--primary); background:#f0f9ff;" onclick="viewPDF(${inspIdx})">📄 View Safety Certificate (PDF)</button>`
+    : '';
+
+  $('#scan-body').innerHTML = `
+    <div class="scan-result" style="max-height: 75vh; overflow-y: auto; padding-right: 4px; gap: 10px;">
+      ${imageHtml}
+      <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+        <div class="scan-status-pill ${statusPillClass(assetStatus)}" style="margin:0;">
+          <span class="scan-status-dot"></span>${esc(assetStatus.toUpperCase())}
+        </div>
+        <div style="font-size: 12px; font-weight: 800; color: var(--primary); background: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">
+          ID: ${esc(a.plate_number)}
+        </div>
+      </div>
+      <div class="scan-vehicle-name" style="margin: 4px 0 6px; font-size: 17px;">
+        ${typeIcon(a.type)} ${esc(a.type)} &bull; ${esc(a.name)}
+      </div>
+      ${actionHtml}
+      ${inspHtml}
+      ${pdfBtnHtml}
+    </div>`;
 
   closeModal('modal-auth');
   openModal('modal-scan');
 
+  // Sync GPS for anyone (logged-in staff OR guest) scanning on mobile
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  if (currentUser && isMobile && navigator.geolocation) {
+  if (isMobile) {
+    if (!window.isSecureContext) {
+      toast('⚠️ GPS blocked: site must be opened over HTTPS.');
+      return;
+    }
+    if (!navigator.geolocation) {
+      toast('⚠️ GPS not supported by this browser.');
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -781,19 +854,38 @@ function simulateScan(assetId) {
         try {
           const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
           const geoData = await geoRes.json();
-          locName = geoData.address.suburb || geoData.address.village || geoData.address.city || geoData.address.county || 'Field Scanned Zone';
+          const addr = geoData?.address;
+          if (addr) {
+            locName = addr.suburb || addr.village || addr.city || addr.county || 'Field Scanned Zone';
+          }
         } catch (geoErr) { console.log('Reverse geocoding skipped'); }
 
-        await fetch(`${API_BASE_URL}/assets/${assetId}/location`, {
+        const endpoint = currentUser
+          ? `${API_BASE_URL}/assets/${encodeURIComponent(assetId)}/location`
+          : `${API_BASE_URL}/public/assets/${encodeURIComponent(assetId)}/location`;
+
+        const res = await fetch(endpoint, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
           body: JSON.stringify({ latitude: lat, longitude: lon, locationName: locName })
         });
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
         toast(`📍 Location updated to: ${locName}`);
-      } catch (e) {}
-    }, () => {}, { enableHighAccuracy: true });
+      } catch (e) {
+        console.error('GPS sync error:', e);
+        toast('⚠️ GPS sync failed: ' + e.message);
+      }
+    }, (err) => {
+      const reasons = {
+        1: 'Location permission denied',
+        2: 'GPS signal unavailable',
+        3: 'GPS request timed out'
+      };
+      toast(`⚠️ GPS error: ${reasons[err.code] || err.message}`);
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
   }
 }
+
 
 function renderReportsView() {
   const tbody = $('#report-tbody'); if (!tbody) return;

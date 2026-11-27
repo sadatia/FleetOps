@@ -186,6 +186,27 @@ app.get('/api/public/assets/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Public QR Scan GPS Sync (No login required)
+app.put('/api/public/assets/:id/location', async (req, res) => {
+  try {
+    const { latitude, longitude, locationName } = req.body;
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+      return res.status(400).json({ error: 'Invalid coordinates' });
+    }
+
+    // Update using the same DB call as your existing /api/assets/:id/location route
+    await db.query(
+      'UPDATE assets SET latitude = $1, longitude = $2, current_location = $3 WHERE id = $4',
+      [latitude, longitude, locationName || 'Field Scanned Zone', req.params.id]
+    );
+
+    io.emit('fleetUpdate');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Public GPS sync error:', err);
+    res.status(500).json({ error: 'Failed to update location' });
+  }
+});
 
 // --- ACTIVITY LOGS ---
 app.get('/api/logs', authenticateToken, requireSiteManager, async (req, res) => {
