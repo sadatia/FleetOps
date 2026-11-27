@@ -6,14 +6,14 @@
   <title>FleetOps — Heavy Vehicle Reservation System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=2.0.0" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
   
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js" defer></script>
+<script src="app.js?v=2.0.0" defer></script>
 </head>
 <body>
   <div class="app">
@@ -29,21 +29,36 @@
         </div>
       </div>
 
-      <nav class="nav">
+     <nav class="nav">
         <a class="nav-item active" data-view="dashboard"><span class="nav-ico">▣</span> Dashboard</a>
         <a class="nav-item" data-view="assets"><span class="nav-ico">⚙</span> Vehicles</a>
         <a class="nav-item" data-view="inspections"><span class="nav-ico">🛡️</span> Safety Inspection</a>
+        <a class="nav-item" data-view="schedule"><span class="nav-ico">🗓️</span> Schedule</a>
         <a class="nav-item" data-view="reservations"><span class="nav-ico">▦</span> Reservations</a>
         <a class="nav-item" data-view="calendar"><span class="nav-ico">▤</span> Calendar</a>
         <a class="nav-item" data-view="map"><span class="nav-ico">◈</span> Live Map</a>
+         <a class="nav-item" data-view="statistics"><span class="nav-ico">📈</span> Statistics</a>
         <a class="nav-item" data-view="scan"><span class="nav-ico">⌗</span> Scan Equipment</a>
-        <a class="nav-item" data-view="reports"><span class="nav-ico">📊</span> Usage Reports</a>
-        
-        <!-- PROTECTED TABS (SITE MANAGER ONLY) -->
-        <a class="nav-item" data-view="users" id="nav-users" style="display:none;"><span class="nav-ico">👥</span> User Management</a>
-        <a class="nav-item" data-view="logs" id="nav-logs" style="display:none;"><span class="nav-ico">📋</span> Activity Logs</a>
+
+        <!-- ADMINISTRATION SUBMENU -->
+        <div class="nav-group" id="nav-admin-group" style="display:none;">
+          <div class="nav-group-toggle" id="nav-admin-toggle">
+            <span class="nav-ico">🛠️</span> Administration
+            <span class="nav-chevron">▾</span>
+          </div>
+          <div class="nav-submenu hidden" id="nav-admin-submenu">
+            <a class="nav-item" data-view="reports"><span class="nav-ico">📊</span> Usage Reports</a>
+           
+            <a class="nav-item" data-view="users" id="nav-users" style="display:none;"><span class="nav-ico">👥</span> User Management</a>
+            <a class="nav-item" data-view="logs" id="nav-logs" style="display:none;"><span class="nav-ico">📋</span> Activity Logs</a>
+          </div>
+        </div>
+
+
+
       </nav>
 
+      
       <div class="side-footer">
         <div class="user-card" style="display: flex; justify-content: space-between; align-items: center; cursor: default; padding: 12px;">
           <div style="display: flex; gap: 10px; align-items: center;">
@@ -112,34 +127,71 @@
       </section>
 
       <section class="view hidden" id="view-assets">
-        <header class="topbar"><div><h1>Vehicles</h1></div><div class="topbar-actions" style="display: flex; gap: 12px;"><button class="btn btn-primary" onclick="openAddVehicleModal()" id="btn-add-vehicle" style="display:none;">+ Add Vehicle</button><div class="search"><span>⌕</span><input id="asset-search" type="text" placeholder="Search vehicle..." /></div></div></header>
-        <!-- Updated Filters & View Toggle Bar -->
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-          <div class="filters" id="asset-filters" style="margin: 0;">
-            <button class="chip active" data-filter="all">All</button>
-            <button class="chip" data-filter="available">Available</button>
-            <button class="chip" data-filter="in-use">In Use</button>
-            <button class="chip" data-filter="maintenance">Maintenance</button>
+        <div class="assets-sticky-head">
+            <header class="topbar">
+              <div><h1>Vehicles</h1></div>
+              <div class="topbar-actions" style="display: flex; gap: 12px;">
+                <button class="btn btn-primary" onclick="openAddVehicleModal()" id="btn-add-vehicle" style="display:none;">+ Add Vehicle</button>
+                <div class="search"><span>⌕</span><input id="asset-search" type="text" placeholder="Search vehicle..." /></div>
+              </div>
+            </header>
+
+            <div class="assets-filter-bar">
+              <!-- Status chips -->
+              <div id="asset-filters" class="chips">
+                <button class="chip active" data-filter="all">All</button>
+                <button class="chip" data-filter="available">Available</button>
+                <button class="chip" data-filter="in-use">In Use</button>
+                <button class="chip" data-filter="maintenance">Maintenance</button>
+              </div>
+
+              <!-- Dynamic Vehicle Type Filters -->
+              <div id="asset-type-filters" class="chips assets-type-chips"></div>
+
+              <!-- View Toggles (pushed to far right) -->
+              <div class="assets-view-toggle">
+                <button id="btn-grid-view" class="btn btn-ghost btn-sm" style="background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.05); color:var(--primary); font-weight:600;">⊞ Grid</button>
+                <button id="btn-list-view" class="btn btn-ghost btn-sm" style="color:var(--text-muted); font-weight:600;">☰ List</button>
+              </div>
+            </div>
           </div>
-          
-          <!-- View Toggles -->
-          <div style="display:flex; gap:4px; background:#f1f5f9; padding:4px; border-radius:8px; border:1px solid var(--border);">
-            <button id="btn-grid-view" class="btn btn-ghost btn-sm" style="background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.05); color:var(--primary); font-weight:600;">⊞ Grid</button>
-            <button id="btn-list-view" class="btn btn-ghost btn-sm" style="color:var(--text-muted); font-weight:600;">☰ List</button>
-          </div>
-        </div>
         <div class="asset-grid" id="asset-grid"></div>
 
-
-
-
-
-
-        <div class="asset-grid" id="asset-grid"></div>
       </section>
 
       <section class="view hidden" id="view-reservations"><header class="topbar"><div><h1>Reservations</h1></div><div class="topbar-actions"><button class="btn btn-primary" onclick="openReserveFor(null)">+ New Reservation</button></div></header><div class="card table-card"><table class="table"><thead><tr><th>Machine ID</th><th>Operator</th><th>Start</th><th>End</th><th>Duration</th><th>Purpose</th><th>Status</th><th></th></tr></thead><tbody id="res-tbody"></tbody></table></div></section>
-      <section class="view hidden" id="view-calendar"><header class="topbar"><div><h1>Calendar</h1></div></header><div class="card"><div class="cal-weekrow"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div><div class="cal-grid" id="cal-grid"></div></div></section>
+
+      <section class="view hidden" id="view-calendar">
+  <header class="topbar">
+    <div>
+      <h1>Calendar</h1>
+      <p class="muted">Monthly overview of past, active, and upcoming bookings</p>
+    </div>
+    <div class="topbar-actions" style="display:flex; align-items:center; gap:10px;">
+      <button class="btn btn-ghost btn-sm" onclick="goToTodayMonth()">Today</button>
+      <div class="sched-date-nav">
+        <button class="sched-nav-btn" onclick="shiftMonth(-1)" title="Previous Month">&lsaquo;</button>
+        <span id="cal-title" class="sched-date-label" style="min-width:140px;">—</span>
+        <button class="sched-nav-btn" onclick="shiftMonth(1)" title="Next Month">&rsaquo;</button>
+      </div>
+      <button class="btn btn-primary" onclick="openReserveFor(null)">+ New Reservation</button>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="cal-weekrow">
+      <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </div>
+</section>
+
+
+
+
+
+
+
       <!-- 🌟 UPGRADED: LIVE FLEET MAP -->
       <section class="view hidden" id="view-map">
         <header class="topbar">
@@ -166,6 +218,139 @@
       <section class="view hidden" id="view-scan"><header class="topbar"><div><h1>Field Engineer Scan</h1></div></header><div class="card"><div class="qr-grid" id="qr-grid"></div></div></section>
       <section class="view hidden" id="view-reports"><header class="topbar"><div><h1>Operational Analytics Report</h1></div><div class="topbar-actions no-print"><button class="btn btn-primary" onclick="window.print()">🖨️ Print PDF</button></div></header><div class="stats"><div class="stat"><div class="stat-label">Total Cost</div><div class="stat-value" id="rep-kpi-cost">$0</div></div><div class="stat"><div class="stat-label">Hours</div><div class="stat-value" id="rep-kpi-hours">0 h</div></div><div class="stat"><div class="stat-label">Bookings</div><div class="stat-value" id="rep-kpi-count">0</div></div></div><div class="card table-card" style="margin-top:24px;"><table class="table"><thead><tr><th>Machine ID</th><th>Type</th><th>Rate/hr</th><th>Bookings</th><th>Hours</th><th>Expenditure</th></tr></thead><tbody id="report-tbody"></tbody></table></div></section>
       <section class="view hidden" id="view-inspections"><header class="topbar"><div><h1>Pre-Mobilization & Annual Safety Inspection</h1></div><div class="topbar-actions"><button class="btn btn-primary" onclick="openInspectionModal()">+ New Inspection</button></div></header><div class="stats"><div class="stat stat-green"><div class="stat-label">Cleared</div><div class="stat-value" id="insp-kpi-valid">0</div></div><div class="stat stat-amber"><div class="stat-label">Due Soon</div><div class="stat-value" id="insp-kpi-soon">0</div></div><div class="stat stat-red"><div class="stat-label">Expired</div><div class="stat-value" id="insp-kpi-expired">0</div></div></div><div class="card table-card"><table class="table"><thead><tr><th>Machine ID</th><th>Owner</th><th>Brand/Model</th><th>Serial/Engine</th><th>Year</th><th>Location</th><th>Inspected</th><th>Next Check</th><th></th></tr></thead><tbody id="inspection-tbody"></tbody></table></div></section>
+
+      <section id="view-schedule" class="view hidden">
+        <div style="margin-bottom: 18px;">
+          <div style="font-size: 11px; font-weight: 800; letter-spacing: 0.8px; color: #0d9488; text-transform: uppercase;">FLEET AVAILABILITY</div>
+          <h1 style="margin: 2px 0 4px; font-size: 26px; font-weight: 800; color: var(--text-main);">Schedule</h1>
+          <p class="muted" style="margin: 0; font-size: 13px;">Overall status &amp; individual vehicle allocation in one view</p>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="sched-toolbar">
+          <div id="sched-range-btns" class="sched-segmented">
+            <button class="sched-seg active" data-range="day">Day</button>
+            <button class="sched-seg" data-range="week">Week</button>
+            <button class="sched-seg" data-range="month">Month</button>
+            <button class="sched-seg" data-range="3m">3 Months</button>
+            <button class="sched-seg" data-range="6m">6 Months</button>
+            <button class="sched-seg" data-range="12m">12 Months</button>
+          </div>
+
+          <div class="sched-controls-right">
+            <div class="sched-date-nav">
+              <button class="sched-nav-btn" id="sched-prev" title="Previous">&lsaquo;</button>
+              <span id="sched-date-label" class="sched-date-label">—</span>
+              <button class="sched-nav-btn" id="sched-next" title="Next">&rsaquo;</button>
+            </div>
+            <select id="sched-type-filter" class="sched-select">
+              <option value="all">All Vehicles</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Timeline Board -->
+        <div class="sched-board">
+          <div id="sched-grid-container" class="sched-grid-scroll"></div>
+        </div>
+      </section>
+
+      <section id="view-statistics" class="view hidden">
+          <div class="wl-header">
+            <div>
+               <h1 class="wl-title">Vehicle Workload</h1>
+              <div class="wl-eyebrow">SIMPLE OPERATIONAL INSIGHT</div>
+            </div>
+            <select id="wl-month-select" class="sched-select"></select>
+          </div>
+
+          <!-- 4 KPI Cards -->
+          <div class="wl-kpi-grid">
+            <div class="wl-kpi-card">
+              <div class="wl-kpi-icon wl-ico-teal">📄</div>
+              <div>
+                <div class="wl-kpi-val" id="wl-kpi-requests">0</div>
+                <div class="wl-kpi-label">Total requests</div>
+                <div class="wl-kpi-sub wl-sub-green" id="wl-kpi-req-diff">0% from prev month</div>
+              </div>
+            </div>
+
+            <div class="wl-kpi-card">
+              <div class="wl-kpi-icon wl-ico-blue">🕒</div>
+              <div>
+                <div class="wl-kpi-val" id="wl-kpi-hours">0 h</div>
+                <div class="wl-kpi-label">Booked hours</div>
+                <div class="wl-kpi-sub">Across all fleet assets</div>
+              </div>
+            </div>
+
+            <div class="wl-kpi-card">
+              <div class="wl-kpi-icon wl-ico-cyan">◔</div>
+              <div>
+                <div class="wl-kpi-val" id="wl-kpi-util">0%</div>
+                <div class="wl-kpi-label">Fleet utilization</div>
+                <div class="wl-kpi-sub">Based on available hours</div>
+              </div>
+            </div>
+
+            <div class="wl-kpi-card">
+              <div class="wl-kpi-icon wl-ico-amber">↻</div>
+              <div>
+                <div class="wl-kpi-val" id="wl-kpi-avg">0 h</div>
+                <div class="wl-kpi-label">Avg. duration</div>
+                <div class="wl-kpi-sub" id="wl-kpi-active-sub">0 active right now</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom 2-Column Analytics -->
+          <div class="wl-main-grid">
+            <!-- Left: Workload by Vehicle Type -->
+            <div class="wl-card">
+              <div class="wl-card-head">
+                <div>
+                  <div class="wl-eyebrow">BOOKED VEHICLE-HOURS</div>
+                  <h2 class="wl-card-title">Workload by vehicle type</h2>
+                </div>
+                <div class="wl-legend-dot"><span style="color:#0d9488;">●</span> Utilization</div>
+              </div>
+              <div id="wl-type-bars" class="wl-bars-list"></div>
+            </div>
+
+            <!-- Right: Monthly Summary Doughnut -->
+            <div class="wl-card">
+              <div class="wl-eyebrow">REQUEST STATUS</div>
+              <h2 class="wl-card-title" style="margin-bottom: 18px;">Monthly summary</h2>
+
+              <div class="wl-donut-wrap">
+                <canvas id="chart-wl-summary"></canvas>
+                <div class="wl-donut-center">
+                  <div class="wl-donut-num" id="wl-donut-total">0</div>
+                  <div class="wl-donut-lbl">REQUESTS</div>
+                </div>
+              </div>
+
+              <div class="wl-status-list">
+                <div class="wl-status-row">
+                  <span><i class="wl-dot" style="background:#0d9488;"></i> Completed</span>
+                  <strong id="wl-st-completed">0</strong>
+                </div>
+                <div class="wl-status-row">
+                  <span><i class="wl-dot" style="background:#f59e0b;"></i> Active / Running</span>
+                  <strong id="wl-st-active">0</strong>
+                </div>
+                <div class="wl-status-row">
+                  <span><i class="wl-dot" style="background:#2563eb;"></i> Upcoming</span>
+                  <strong id="wl-st-upcoming">0</strong>
+                </div>
+                <div class="wl-status-row">
+                  <span><i class="wl-dot" style="background:#ef4444;"></i> In Maintenance (Assets)</span>
+                  <strong id="wl-st-maint">0</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
       <!-- Modals -->
       <div class="modal hidden" id="modal-user"><div class="modal-box" style="width:400px;"><div class="modal-head"><h2 id="user-modal-title">Add User</h2><button class="x" onclick="closeModal('modal-user')">✕</button></div><form id="form-user" class="form"><label>Full Name <input name="fullName" required /></label><label>Email Address <input type="email" name="email" required /></label><label>Role Account Type<select name="role"><option value="field_engineer">Field Engineer</option><option value="site_manager">Site Manager</option><option value="safety_team">Safety Team</option></select></label><div id="user-password-field"><label>Initial Password <input type="password" name="password" minlength="6" /></label></div><div class="modal-foot"><button type="submit" class="btn btn-primary">Save User Account</button></div></form></div></div>

@@ -3,9 +3,10 @@
    ============================================================ */
 const API_BASE_URL = '/api';
 let assets = [], reservations = [], inspections = [], usersList = [], activityLogs = [];
-let calMonth = new Date(), assetFilter = 'all', resFilter = 'all';
+let calMonth = new Date(), assetFilter = 'all', assetTypeFilter = 'all', resFilter = 'all';
 let charts = {}, currentUser = null, mapInstance = null, currentEditingReservationId = null;
 let assetViewMode = 'grid';
+let schedRange = 'day', schedDate = new Date(), schedTypeFilter = 'Crane';
 
 const $ = sel => document.querySelector(sel);
 const $$ = sel => document.querySelectorAll(sel);
@@ -86,8 +87,9 @@ async function load() {
     renderAll();
     renderReservations();
     renderCalendar();
-
+    if ($('#view-statistics') && !$('#view-statistics').classList.contains('hidden')) renderStatistics();
     if ($('#view-map') && !$('#view-map').classList.contains('hidden')) renderLiveMap();
+    if ($('#view-schedule') && !$('#view-schedule').classList.contains('hidden')) renderSchedule();
     if ($('#view-inspections') && !$('#view-inspections').classList.contains('hidden')) renderInspections();
     if ($('#view-reports') && !$('#view-reports').classList.contains('hidden')) renderReportsView();
     if ($('#view-users') && !$('#view-users').classList.contains('hidden')) renderUsers();
@@ -142,6 +144,8 @@ function goTo(view) {
   if (view === 'reports') renderReportsView();
   if (view === 'users') renderUsers();
   if (view === 'logs') renderLogs();
+  if (view === 'schedule') renderSchedule();
+  if (view === 'statistics') renderStatistics();
 }
 
 function renderLogs() {
@@ -280,11 +284,45 @@ function drawStatusChart(data) {
   charts.status = new Chart(ctx, { type: 'doughnut', data: { labels: ['Available', 'In Use', 'Maintenance'], datasets: [{ data, backgroundColor: ['#16a34a', '#d97706', '#dc2626'], borderWidth: 0 }] }, options: { cutout: '65%', responsive: true, maintainAspectRatio: false } });
 }
 
+
+function renderAssetTypeFilters() {
+  const container = $('#asset-type-filters');
+  if (!container) return;
+
+  // Collect unique vehicle types currently in the fleet
+  const types = [...new Set(assets.map(a => a.type).filter(Boolean))].sort();
+  if (assetTypeFilter !== 'all' && !types.includes(assetTypeFilter)) {
+    assetTypeFilter = 'all';
+  }
+
+  const allChip = `<button class="chip ${assetTypeFilter === 'all' ? 'active' : ''}" data-type="all">All Types</button>`;
+  const typeChips = types.map(t => {
+    const count = assets.filter(a => a.type === t).length;
+    return `<button class="chip ${assetTypeFilter === t ? 'active' : ''}" data-type="${esc(t)}">${typeIcon(t)} ${esc(t)} <span style="opacity:0.65; font-size:11px;">(${count})</span></button>`;
+  }).join('');
+
+  container.innerHTML = allChip + typeChips;
+
+  container.querySelectorAll('.chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      assetTypeFilter = btn.dataset.type;
+      renderAssets();
+    });
+  });
+}
+
 function renderAssets() {
+  renderAssetTypeFilters();
+
   const search = ($('#asset-search')?.value || '').toLowerCase();
-  let list = assets.filter(a => assetFilter === 'all' ? true : a.status === assetFilter);
+  let list = assets.filter(a => {
+    const statusMatch = assetFilter === 'all' ? true : a.status === assetFilter;
+    const typeMatch = assetTypeFilter === 'all' ? true : a.type === assetTypeFilter;
+    return statusMatch && typeMatch;
+  });
   if (search) list = list.filter(a => a.name.toLowerCase().includes(search) || a.plate_number.toLowerCase().includes(search));
 
+  // ...keep the rest of your existing renderAssets() code unchanged
   const gridContainer = $('#asset-grid');
   if (assetViewMode === 'list') {
     gridContainer.style.display = 'flex';
@@ -353,31 +391,216 @@ function renderReservations() {
   }).join('') : '<tr><td colspan="8" class="muted" style="text-align:center;">No reservation sheets.</td></tr>';
 }
 
-function shiftMonth(delta) { calMonth.setMonth(calMonth.getMonth() + delta); renderCalendar(); }
+function shiftMonth(delta) {
+  // Set day to 1 first to avoid skipping months on the 29th–31st
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + delta, 1);
+  renderCalendar();
+}
+
+function goToTodayMonth() {
+  calMonth = new Date();
+  renderCalendar();
+}
 
 function renderCalendar() {
   const year = calMonth.getFullYear(), month = calMonth.getMonth();
-  if ($('#cal-title')) $('#cal-title').textContent = calMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
-  const startDay = new Date(year, month, 1).getDay(), daysInMonth = new Date(year, month + 1, 0).getDate();
+  if ($('#cal-title')) {
+    $('#cal-title').textContent = calMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  }
+
+  const startDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((startDay + daysInMonth) / 7) * 7;
+  const todayStr = new Date().toDateString();
 
   let html = '';
-  for (let i = 0; i < startDay; i++) html += '<div class="cal-cell empty"></div>';
+  for (let i = 0; i < totalCells; i++) {
+    const cellDate = new Date(year, month, 1 - startDay + i);
+    const isOtherMonth = cellDate.getMonth() !== month;
+    const isToday = cellDate.toDateString() === todayStr;
 
-  for (let d = 1; d <= daysInMonth; d++) {
-    const check = new Date(year, month, d);
     const dayRes = reservations.filter(r => {
       if (!r.startTime || !r.endTime) return false;
       const s = new Date(r.startTime), e = new Date(r.endTime);
-      return check >= new Date(s.getFullYear(), s.getMonth(), s.getDate()) && check <= new Date(e.getFullYear(), e.getMonth(), e.getDate());
+      const sDay = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+      const eDay = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+      return cellDate >= sDay && cellDate <= eDay;
     });
-    const evHtml = dayRes.slice(0, 3).map((r, i) => {
+
+    const evHtml = dayRes.slice(0, 3).map(r => {
       const a = getAsset(r.assetId);
+      if (!a) return '';
       const operator = r.operatorName || 'Unknown';
-      return a ? `<div class="cal-event ${['', 'green', 'blue'][i % 3]}" onclick="showDetail('${esc(a.id)}')" title="${esc(a.plate_number)} reserved by ${esc(operator)}">${typeIcon(a.type)} ${esc(a.plate_number)} &bull; ${esc(operator)}</div>` : '';
+      const vColor = typeof getVehicleColor === 'function' ? getVehicleColor(a.id) : 'var(--primary)';
+      const st = reservationStatus(r);
+      const fade = st === 'completed' ? 'opacity:0.6;' : '';
+      return `<div class="cal-event" style="background:${vColor}18; color:${vColor}; border-color:${vColor}44; ${fade}" onclick="showDetail('${esc(a.id)}')" title="${esc(a.plate_number)} — ${esc(operator)} (${fmtDate(r.startTime)} to ${fmtDate(r.endTime)})">${typeIcon(a.type)} ${esc(a.plate_number)} &bull; ${esc(operator)}</div>`;
     }).join('');
-    html += `<div class="cal-cell ${check.toDateString() === new Date().toDateString() ? 'today' : ''}"><div class="cal-num">${d}</div>${evHtml}</div>`;
+
+    const moreHtml = dayRes.length > 3
+      ? `<div class="cal-more">+${dayRes.length - 3} more</div>`
+      : '';
+
+    const dayLabel = isOtherMonth
+      ? `${cellDate.getDate()} ${cellDate.toLocaleDateString('en-GB', { month: 'short' })}`
+      : cellDate.getDate();
+
+    html += `
+      <div class="cal-cell ${isOtherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}">
+        <div class="cal-num">${dayLabel}</div>
+        ${evHtml}
+        ${moreHtml}
+      </div>`;
   }
+
   if ($('#cal-grid')) $('#cal-grid').innerHTML = html;
+}
+
+
+
+function shiftSchedule(delta) {
+  if (schedRange === 'day') schedDate.setDate(schedDate.getDate() + delta);
+  else if (schedRange === 'week') schedDate.setDate(schedDate.getDate() + (delta * 7));
+  else if (schedRange === 'month') schedDate.setMonth(schedDate.getMonth() + delta);
+  else if (schedRange === '3m') schedDate.setMonth(schedDate.getMonth() + (delta * 3));
+  else if (schedRange === '6m') schedDate.setMonth(schedDate.getMonth() + (delta * 6));
+  else if (schedRange === '12m') schedDate.setFullYear(schedDate.getFullYear() + delta);
+  renderSchedule();
+}
+
+
+const VEHICLE_COLORS = [
+  '#007cc2', // Corporate Blue
+  '#0d9488', // Teal
+  '#d97706', // Amber
+  '#7c3aed', // Violet
+  '#e11d48', // Rose
+  '#16a34a', // Green
+  '#2563eb', // Royal Blue
+  '#ea580c', // Orange
+  '#9333ea', // Purple
+  '#0891b2', // Cyan
+  '#4f46e5', // Indigo
+  '#be123c'  // Crimson
+];
+
+function getVehicleColor(assetId) {
+  const idx = assets.findIndex(a => String(a.id) === String(assetId));
+  return VEHICLE_COLORS[(idx >= 0 ? idx : 0) % VEHICLE_COLORS.length];
+}
+
+function renderSchedule() {
+  const container = $('#sched-grid-container');
+  if (!container) return;
+
+  // Populate dynamic vehicle type dropdown
+  const select = $('#sched-type-filter');
+  if (select) {
+    const types = [...new Set(assets.map(a => a.type).filter(Boolean))].sort();
+    if (schedTypeFilter !== 'all' && types.length > 0 && !types.includes(schedTypeFilter)) {
+     schedTypeFilter = 'all';
+      }
+    
+    select.innerHTML = `<option value="all">All Vehicles</option>` +
+      types.map(t => `<option value="${esc(t)}" ${schedTypeFilter === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  }
+
+  // Compute time window & columns
+  const base = new Date(schedDate);
+  let rangeStart, rangeEnd, cols = [], label = '';
+
+  if (schedRange === 'day') {
+    rangeStart = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 7, 0, 0);
+    rangeEnd = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 21, 0, 0);
+    for (let h = 7; h <= 19; h += 2) cols.push(`${String(h).padStart(2, '0')}:00`);
+    label = base.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  } else if (schedRange === 'week') {
+    const day = base.getDay();
+    const diff = base.getDate() - day + (day === 0 ? -6 : 1);
+    rangeStart = new Date(base.getFullYear(), base.getMonth(), diff, 0, 0, 0);
+    rangeEnd = new Date(rangeStart.getTime() + 7 * 86400000);
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(rangeStart.getTime() + i * 86400000);
+      cols.push(d.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit' }));
+    }
+    const endDisp = new Date(rangeEnd.getTime() - 86400000);
+    label = `${rangeStart.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${endDisp.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  } else if (schedRange === 'month') {
+    rangeStart = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0);
+    const days = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+    rangeEnd = new Date(base.getFullYear(), base.getMonth() + 1, 1, 0, 0, 0);
+    for (let d = 1; d <= days; d++) cols.push(String(d));
+    label = base.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  } else {
+    const monthsCount = schedRange === '3m' ? 3 : schedRange === '6m' ? 6 : 12;
+    rangeStart = new Date(base.getFullYear(), base.getMonth(), 1, 0, 0, 0);
+    rangeEnd = new Date(base.getFullYear(), base.getMonth() + monthsCount, 1, 0, 0, 0);
+    for (let i = 0; i < monthsCount; i++) {
+      const m = new Date(base.getFullYear(), base.getMonth() + i, 1);
+      cols.push(m.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }));
+    }
+    const endM = new Date(base.getFullYear(), base.getMonth() + monthsCount - 1, 1);
+    label = `${rangeStart.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} – ${endM.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
+  }
+
+  if ($('#sched-date-label')) $('#sched-date-label').textContent = label;
+
+  const totalMs = rangeEnd.getTime() - rangeStart.getTime();
+  const filteredAssets = schedTypeFilter === 'all' ? assets : assets.filter(a => a.type === schedTypeFilter);
+  const gridColsStyle = `grid-template-columns: repeat(${cols.length}, minmax(${schedRange === 'month' ? '28px' : '85px'}, 1fr));`;
+
+  const headerHtml = `
+    <div class="sched-header-row">
+      <div class="sched-vehicle-col-head">Vehicle</div>
+      <div class="sched-cols-head" style="${gridColsStyle}">
+        ${cols.map(c => `<div class="sched-col-label">${esc(c)}</div>`).join('')}
+      </div>
+    </div>`;
+
+    const rowsHtml = filteredAssets.length ? filteredAssets.map(a => {
+    const vColor = getVehicleColor(a.id);
+    const thumbStyle = a.image_data ? `background-image:url(${esc(a.image_data)});` : '';
+    const thumbIcon = a.image_data ? '' : typeIcon(a.type);
+
+    const assetRes = reservations.filter(r =>
+      r.assetId === a.id &&
+      new Date(r.endTime).getTime() > rangeStart.getTime() &&
+      new Date(r.startTime).getTime() < rangeEnd.getTime()
+    );
+
+    const barsHtml = assetRes.map(r => {
+      const s = Math.max(new Date(r.startTime).getTime(), rangeStart.getTime());
+      const e = Math.min(new Date(r.endTime).getTime(), rangeEnd.getTime());
+      const leftPct = ((s - rangeStart.getTime()) / totalMs) * 100;
+      const widthPct = Math.max(2, ((e - s) / totalMs) * 100);
+      const st = reservationStatus(r);
+      const opacity = st === 'completed' ? 'opacity:0.55;' : '';
+      return `<div class="sched-bar" style="left:${leftPct}%; width:${widthPct}%; background:${vColor}; ${opacity}" onclick="event.stopPropagation(); showDetail('${esc(a.id)}')" title="${esc(r.operatorName)} — ${esc(r.purpose)} (${fmtDate(r.startTime)} to ${fmtDate(r.endTime)})">${esc(r.operatorName)} &bull; ${esc(r.purpose)}</div>`;
+    }).join('');
+
+    const bgCells = cols.map(() => `<div class="sched-cell-bg" onclick="openReserveFor('${esc(a.id)}')" title="Click to reserve ${esc(a.plate_number)}"></div>`).join('');
+
+    return `
+      <div class="sched-row">
+        <div class="sched-vehicle-cell" style="border-left: 4px solid ${vColor};" onclick="showDetail('${esc(a.id)}')">
+          <div class="sched-thumb" style="${thumbStyle}">${thumbIcon}</div>
+          <div style="min-width:0;">
+            <div style="font-weight:800; font-size:13px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(a.plate_number)}</div>
+            <div style="font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(a.type)} &bull; ${esc(a.current_location || 'Main Site')}</div>
+          </div>
+        </div>
+        <div class="sched-track" style="${gridColsStyle}">
+          ${bgCells}
+          ${barsHtml}
+        </div>
+      </div>`;
+  }).join('') : `<div class="muted" style="padding:40px; text-align:center;">No vehicles match this filter.</div>`;
+
+  container.innerHTML = `<div class="sched-table">${headerHtml}${rowsHtml}</div>`;
+}
+
+function dms(d, m, s) {
+  return d + (m / 60) + (s / 3600);
 }
 
 function renderLiveMap() {
@@ -391,10 +614,68 @@ function renderLiveMap() {
     if (!mapInstance) {
       mapInstance = L.map('map-container', { zoomControl: false }).setView([21.692153, 91.867748], 13);
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
-     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-  attribution: 'Tiles &copy; Esri',
-  maxZoom: 19
-}).addTo(mapInstance);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 19
+      }).addTo(mapInstance);
+
+      // --- SITE BOUNDARY ZONES ---
+      const areaA_Points = [
+        [dms(21, 41, 51.40), dms(91, 52, 8.34)], [dms(21, 41, 31.89), dms(91, 52, 5.54)],
+        [dms(21, 41, 27.72), dms(91, 52, 5.34)], [dms(21, 41, 27.17), dms(91, 51, 49.00)],
+        [dms(21, 41, 21.93), dms(91, 51, 48.98)], [dms(21, 41, 21.51), dms(91, 51, 45.22)],
+        [dms(21, 41, 11.09), dms(91, 51, 44.62)], [dms(21, 41, 11.75), dms(91, 51, 31.53)],
+        [dms(21, 41, 12.47), dms(91, 51, 30.72)], [dms(21, 41, 30.23), dms(91, 51, 30.64)],
+        [dms(21, 41, 30.48), dms(91, 51, 29.99)], [dms(21, 41, 38.15), dms(91, 51, 30.03)],
+        [dms(21, 41, 38.09), dms(91, 51, 35.33)], [dms(21, 41, 39.64), dms(91, 51, 37.96)],
+        [dms(21, 41, 38.80), dms(91, 51, 43.10)], [dms(21, 41, 48.92), dms(91, 51, 54.67)],
+        [dms(21, 41, 51.45), dms(91, 51, 59.12)]
+      ];
+
+      const areaB_Points = [
+        [dms(21, 40, 53.48), dms(91, 51, 45.70)], [dms(21, 40, 53.04), dms(91, 51, 53.08)],
+        [dms(21, 40, 51.41), dms(91, 51, 53.15)], [dms(21, 40, 51.84), dms(91, 51, 55.99)],
+        [dms(21, 40, 50.89), dms(91, 51, 56.41)], [dms(21, 40, 51.41), dms(91, 52, 37.11)],
+        [dms(21, 40, 41.88), dms(91, 52, 36.32)], [dms(21, 40, 41.88), dms(91, 52, 9.51)],
+        [dms(21, 40, 36.02), dms(91, 52, 9.52)], [dms(21, 40, 36.10), dms(91, 51, 53.57)],
+        [dms(21, 40, 38.25), dms(91, 51, 50.70)], [dms(21, 40, 48.26), dms(91, 51, 46.27)],
+        [dms(21, 40, 52.62), dms(91, 51, 46.42)]
+      ];
+
+      const accessRoad_Points = [
+        [dms(21, 41, 11.32), dms(91, 51, 44.48)], [dms(21, 41, 11.29), dms(91, 51, 45.57)],
+        [dms(21, 41, 11.13), dms(91, 51, 45.78)], [dms(21, 41, 4.18),  dms(91, 51, 45.92)],
+        [dms(21, 40, 53.16), dms(91, 51, 46.43)], [dms(21, 40, 53.13), dms(91, 51, 49.35)],
+        [dms(21, 41, 9.64),  dms(91, 51, 48.76)], [dms(21, 41, 13.61), dms(91, 51, 48.84)],
+        [dms(21, 41, 13.56), dms(91, 51, 47.74)], [dms(21, 41, 14.31), dms(91, 51, 45.97)],
+        [dms(21, 41, 13.83), dms(91, 51, 45.88)], [dms(21, 41, 11.77), dms(91, 51, 45.87)],
+        [dms(21, 41, 12.31), dms(91, 51, 44.43)]
+      ];
+
+      const areaAPoly = L.polygon(areaA_Points, { color: '#22c55e', weight: 2, fillColor: '#22c55e', fillOpacity: 0.2 })
+        .addTo(mapInstance)
+        .bindTooltip('Area A', { permanent: true, direction: 'center' });
+
+      const areaBPoly = L.polygon(areaB_Points, { color: '#dd0808', weight: 2, fillColor: '#7d0303', fillOpacity: 0.2 })
+        .addTo(mapInstance)
+        .bindTooltip('Area B', { permanent: true, direction: 'center' });
+
+      L.polygon(accessRoad_Points, { color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.35 })
+        .addTo(mapInstance)
+        .bindTooltip('Access Road', { sticky: true });
+
+      // Optional: green3DIcon available for site gate / landmark pins
+      const green3DIcon = new L.Icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+
+      // Fit initial view to include both Area A & Area B
+      mapInstance.fitBounds(L.featureGroup([areaAPoly, areaBPoly]).getBounds(), { padding: [40, 40] });
     } else {
       mapInstance.invalidateSize();
       mapInstance.eachLayer(l => { if (l instanceof L.Marker) mapInstance.removeLayer(l); });
@@ -428,7 +709,14 @@ function renderLiveMap() {
       }
     });
 
-    if (bounds.length > 0) mapInstance.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+    if (bounds.length > 0) {
+      mapInstance.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+    }
+
+    // Zoom out 2 levels & shift center slightly to the right (East)
+    const center = mapInstance.getCenter();
+    const targetZoom = Math.max(10, mapInstance.getZoom() - 2);
+    mapInstance.setView([center.lat, center.lng + 0.006], targetZoom, { animate: false });
   }, 100);
 }
 
@@ -522,6 +810,134 @@ function renderReportsView() {
   if ($('#rep-kpi-cost')) $('#rep-kpi-cost').textContent = `$${cost.toFixed(2)}`;
   if ($('#rep-kpi-hours')) $('#rep-kpi-hours').textContent = `${hrs.toFixed(1)} h`;
   if ($('#rep-kpi-count')) $('#rep-kpi-count').textContent = count;
+}
+function populateStatsMonths() {
+  const sel = $('#wl-month-select');
+  if (!sel || sel.options.length > 0) return;
+
+  const now = new Date();
+  let opts = '';
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = i === 0
+      ? `This month - ${d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+      : d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    opts += `<option value="${val}">${label}</option>`;
+  }
+  opts += `<option value="all">All Time</option>`;
+  sel.innerHTML = opts;
+}
+
+function renderStatistics() {
+  populateStatsMonths();
+  const sel = $('#wl-month-select');
+  const selected = sel ? sel.value : 'all';
+
+  let monthRes = reservations;
+  let prevMonthCount = 0;
+  let daysInPeriod = 30;
+
+  if (selected !== 'all') {
+    const [yr, mo] = selected.split('-').map(Number);
+    const start = new Date(yr, mo - 1, 1);
+    const end = new Date(yr, mo, 1);
+    const prevStart = new Date(yr, mo - 2, 1);
+    daysInPeriod = new Date(yr, mo, 0).getDate();
+
+    monthRes = reservations.filter(r => {
+      const s = new Date(r.startTime);
+      return s >= start && s < end;
+    });
+    prevMonthCount = reservations.filter(r => {
+      const s = new Date(r.startTime);
+      return s >= prevStart && s < start;
+    }).length;
+  }
+
+  // 1. KPIs
+  const totalReq = monthRes.length;
+  let totalHrs = 0;
+  monthRes.forEach(r => totalHrs += hoursBetween(r.startTime, r.endTime));
+
+  const activeAssetsCount = Math.max(1, assets.filter(a => a.status !== 'maintenance').length);
+  const availableCapacityHrs = activeAssetsCount * 8 * daysInPeriod;
+  const utilizationPct = Math.min(100, Math.round((totalHrs / availableCapacityHrs) * 100));
+  const avgHrs = totalReq ? (totalHrs / totalReq) : 0;
+
+  const diffPct = prevMonthCount > 0
+    ? Math.round(((totalReq - prevMonthCount) / prevMonthCount) * 100)
+    : (totalReq > 0 ? 100 : 0);
+
+  if ($('#wl-kpi-requests')) $('#wl-kpi-requests').textContent = totalReq;
+  if ($('#wl-kpi-req-diff')) {
+    $('#wl-kpi-req-diff').textContent = selected === 'all'
+      ? 'Across full history'
+      : `${diffPct >= 0 ? '+' : ''}${diffPct}% from prev month`;
+  }
+  if ($('#wl-kpi-hours')) $('#wl-kpi-hours').textContent = `${totalHrs.toFixed(1).replace(/\.0$/, '')} h`;
+  if ($('#wl-kpi-util')) $('#wl-kpi-util').textContent = `${utilizationPct}%`;
+  if ($('#wl-kpi-avg')) $('#wl-kpi-avg').textContent = `${avgHrs.toFixed(1).replace(/\.0$/, '')} h`;
+
+  const completed = monthRes.filter(r => reservationStatus(r) === 'completed').length;
+  const active = monthRes.filter(r => reservationStatus(r) === 'active').length;
+  const upcoming = monthRes.filter(r => reservationStatus(r) === 'upcoming').length;
+  const maintAssets = assets.filter(a => a.status === 'maintenance').length;
+
+  if ($('#wl-kpi-active-sub')) $('#wl-kpi-active-sub').textContent = `${active} active right now`;
+
+  // 2. Workload by Vehicle Type Bars
+  const barsContainer = $('#wl-type-bars');
+  if (barsContainer) {
+    const types = [...new Set(assets.map(a => a.type).filter(Boolean))].sort();
+    const typeHours = types.map(t => {
+      const ids = new Set(assets.filter(a => a.type === t).map(a => a.id));
+      let h = 0;
+      monthRes.forEach(r => { if (ids.has(r.assetId)) h += hoursBetween(r.startTime, r.endTime); });
+      return { type: t, hours: h };
+    }).sort((a, b) => b.hours - a.hours);
+
+    const maxH = Math.max(1, ...typeHours.map(x => x.hours));
+    barsContainer.innerHTML = typeHours.length ? typeHours.map(item => {
+      const pct = item.hours > 0 ? Math.max(4, (item.hours / maxH) * 100) : 0;
+      return `
+        <div class="wl-bar-row">
+          <div class="wl-bar-name">${typeIcon(item.type)} ${esc(item.type)}</div>
+          <div class="wl-bar-track"><div class="wl-bar-fill" style="width:${pct}%;"></div></div>
+          <div class="wl-bar-hrs">${item.hours.toFixed(1).replace(/\.0$/, '')} h</div>
+        </div>`;
+    }).join('') : '<div class="muted small">No vehicles registered yet.</div>';
+  }
+
+  // 3. Monthly Summary Doughnut
+  if ($('#wl-donut-total')) $('#wl-donut-total').textContent = totalReq;
+  if ($('#wl-st-completed')) $('#wl-st-completed').textContent = completed;
+  if ($('#wl-st-active')) $('#wl-st-active').textContent = active;
+  if ($('#wl-st-upcoming')) $('#wl-st-upcoming').textContent = upcoming;
+  if ($('#wl-st-maint')) $('#wl-st-maint').textContent = maintAssets;
+
+  const ctx = $('#chart-wl-summary');
+  if (ctx) {
+    if (charts.wlSummary) charts.wlSummary.destroy();
+    const hasData = (completed + active + upcoming) > 0;
+    charts.wlSummary = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Completed', 'Active', 'Upcoming'],
+        datasets: [{
+          data: hasData ? [completed, active, upcoming] : [1],
+          backgroundColor: hasData ? ['#0d9488', '#f59e0b', '#2563eb'] : ['#e2e8f0'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        cutout: '72%',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: hasData } }
+      }
+    });
+  }
 }
 
 function renderInspections() {
@@ -898,6 +1314,7 @@ function checkAuthSession() {
   const navInspections = document.querySelector('.nav-item[data-view="inspections"]');
   const navReservations = document.querySelector('.nav-item[data-view="reservations"]');
   const navCalendar = document.querySelector('.nav-item[data-view="calendar"]');
+  const navSchedule = document.querySelector('.nav-item[data-view="schedule"]');
   const navScan = document.querySelector('.nav-item[data-view="scan"]');
   const navReports = document.querySelector('.nav-item[data-view="reports"]');
   const navMap = document.querySelector('.nav-item[data-view="map"]');
@@ -908,6 +1325,7 @@ function checkAuthSession() {
   if (navInspections) navInspections.style.display = (role === 'site_manager' || role === 'safety_team') ? 'flex' : 'none';
   if (navReservations) navReservations.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'flex' : 'none';
   if (navCalendar) navCalendar.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'flex' : 'none';
+  if (navSchedule) navSchedule.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'flex' : 'none';
   if (navScan) navScan.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'flex' : 'none';
   if (navMap) navMap.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'flex' : 'none';
 
@@ -917,9 +1335,19 @@ function checkAuthSession() {
   $$('.btn-primary[onclick="openReserveFor(null)"]').forEach(btn => { btn.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'block' : 'none'; });
   $$('.btn-primary[onclick="openInspectionModal()"]').forEach(btn => { btn.style.display = (role === 'site_manager' || role === 'safety_team') ? 'block' : 'none'; });
 
+
   const scanCloseBtn = document.querySelector('#modal-scan .x');
   if (scanCloseBtn) scanCloseBtn.style.display = 'block';
+
+  const navStats = document.querySelector('.nav-item[data-view="statistics"]');
+  if (navStats) navStats.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'flex' : 'none';
+
+  const navAdminGroup = document.getElementById('nav-admin-group');
+  if (navAdminGroup) {
+    navAdminGroup.style.display = (role === 'site_manager' || role === 'field_engineer') ? 'block' : 'none';
+  }
 }
+  
 
 if ($('#form-login')) {
   $('#form-login').addEventListener('submit', async e => {
@@ -1053,6 +1481,23 @@ if ($('#form-reserve')) {
   });
 }
 
+function injectPageDates() {
+  const todayStr = new Date().toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+
+  $$('.view h1').forEach(h1 => {
+    if (h1.parentElement.querySelector('.page-date-badge')) return;
+    const badge = document.createElement('div');
+    badge.className = 'page-date-badge';
+    badge.innerHTML = `<span class="date-org">MPDP PTJV</span><span class="date-sep">&bull;</span><span class="date-pill">${esc(todayStr)}</span>`;
+    h1.parentElement.insertBefore(badge, h1);
+  });
+}
+
 function wire() {
   $$('.nav-item').forEach(n => n.addEventListener('click', () => goTo(n.dataset.view)));
   if ($('#log-search')) $('#log-search').addEventListener('input', renderLogs);
@@ -1076,6 +1521,33 @@ function wire() {
       renderAssets();
     });
   }
+
+  if ($('#wl-month-select')) {
+  $('#wl-month-select').addEventListener('change', renderStatistics);
+  }
+
+  $$('#sched-range-btns .sched-seg').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('#sched-range-btns .sched-seg').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      schedRange = btn.dataset.range;
+      renderSchedule();
+    });
+  });
+  if ($('#sched-prev')) $('#sched-prev').addEventListener('click', () => shiftSchedule(-1));
+  if ($('#sched-next')) $('#sched-next').addEventListener('click', () => shiftSchedule(1));
+  if ($('#sched-type-filter')) {
+    $('#sched-type-filter').addEventListener('change', (e) => {
+      schedTypeFilter = e.target.value;
+      renderSchedule();
+    });
+  }
+  if ($('#nav-admin-toggle')) {
+    $('#nav-admin-toggle').addEventListener('click', () => {
+      $('#nav-admin-group')?.classList.toggle('open');
+      $('#nav-admin-submenu')?.classList.toggle('hidden');
+    });
+  }
 }
 
 const socket = io();
@@ -1087,6 +1559,7 @@ socket.on('fleetUpdate', () => {
 socket.on('inspectionUpdate', () => { if (currentUser) load(); });
 socket.on('logUpdate', () => { if (currentUser && currentUser.role === 'site_manager') load(); });
 
+injectPageDates();
 wire();
 checkAuthSession();
 load();

@@ -6,16 +6,16 @@
   --bg-dark: #f4f7fa;        /* Bright industrial site base background */
   --bg-card: #ffffff;        /* High-contrast pristine white cards */
   --bg-input: #edf2f7;       /* Form input background fields */
-  
+
   /* MPDP PTJV BRAND DESIGN PRIMARY SYSTEM */
   --primary: #007cc2;        /* The explicit corporate Electric Cyan-Blue from your logo */
   --primary-hover: #005a8f;  /* Deeper variant for structural states */
   --accent-teal: #00a4b4;    /* Marine-teal dynamic accent highlight */
-  
+
   --text-main: #0c1a30;      /* Sharp, clear charcoal slate text color */
   --text-muted: #5a6e85;     /* Structural reading gray layout subtitles */
   --border: #d2dee9;         /* Clean blueprint grid division line styles */
-  
+
   --green: #10b981;          /* Available vehicle / synchronized status */
   --amber: #f59e0b;          /* Running / Reserved equipment color codes */
   --red: #ef4444;            /* Out of service / Maintenance tracking code */
@@ -129,7 +129,62 @@ body {
   font-size: 16px;
   opacity: 0.8;
 }
+.nav-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
 
+.nav-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--text-muted);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.nav-group-toggle:hover {
+  background-color: #f0f5fa;
+  color: var(--primary);
+}
+
+.nav-chevron {
+  margin-left: auto;
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.nav-group.open .nav-chevron {
+  transform: rotate(180deg);
+}
+
+.nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 18px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  margin-top: 4px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-grow: 1;
+  overflow-y: auto;
+}
+.nav-submenu .nav-item {
+  padding: 9px 12px;
+  font-size: 13px;
+}
 .side-footer {
   border-top: 1px solid var(--border);
   padding-top: 16px;
@@ -430,14 +485,14 @@ h1 {
   border-radius: 12px;
   padding: 20px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
   box-shadow: 0 2px 4px rgba(12, 26, 48, 0.02);
 }
 
 .asset-card:hover {
   border-color: var(--primary);
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(12, 26, 48, 0.06);
+  transform: translateY(-4px) !important;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08) !important;
 }
 
 .asset-top {
@@ -518,7 +573,7 @@ h1 {
 }
 
 .table th {
-  background: #f8fbc;
+  background: #f8fafc;
   padding: 14px 20px;
   font-size: 12px;
   text-transform: uppercase;
@@ -569,6 +624,17 @@ h1 {
 }
 
 .cal-cell.empty { background: transparent; border-color: transparent; }
+.cal-cell.other-month {
+  background: #f8fafc;
+  opacity: 0.65;
+}
+
+.cal-more {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  padding: 2px 6px;
+}
 .cal-cell.today { border-color: var(--primary); background: #f4faff; box-shadow: inset 0 0 0 1px var(--primary); }
 
 .cal-num {
@@ -620,12 +686,6 @@ h1 {
   width: 520px;
   padding: 28px;
   box-shadow: 0 20px 25px -5px rgba(12, 26, 48, 0.1), 0 10px 10px -5px rgba(12, 26, 48, 0.04);
-  animation: modalScale 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes modalScale {
-  from { transform: scale(0.96); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
 }
 
 .modal-head {
@@ -796,8 +856,225 @@ h1 {
   from { transform: translateY(12px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
 /* ============================================================
-   🚀 ENTERPRISE UPGRADES: Animations, Scrollbars & Mobile
+   SCHEDULE TIMELINE VIEW
+   ============================================================ */
+.sched-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sched-segmented {
+  display: inline-flex;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  gap: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.sched-seg {
+  border: none;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sched-seg:hover { color: var(--text-main); background: #f8fafc; }
+.sched-seg.active { background: #1e293b; color: #fff; }
+
+.sched-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sched-date-nav {
+  display: inline-flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.sched-nav-btn {
+  border: none;
+  background: transparent;
+  width: 30px;
+  height: 30px;
+  font-size: 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.sched-nav-btn:hover { background: #f1f5f9; color: var(--text-main); }
+
+.sched-date-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  padding: 0 12px;
+  min-width: 110px;
+  text-align: center;
+}
+
+.sched-select {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.sched-board {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+.sched-grid-scroll {
+  overflow-x: auto;
+}
+
+.sched-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+}
+
+.sched-header-row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.sched-vehicle-col-head {
+  width: 240px;
+  flex-shrink: 0;
+  padding: 14px 18px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-main);
+  border-right: 1px solid var(--border);
+  position: sticky;
+  left: 0;
+  background: #f8fafc;
+  z-index: 3;
+}
+
+.sched-cols-head {
+  flex: 1;
+  display: grid;
+}
+
+.sched-col-label {
+  padding: 16px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-right: 1px solid #f1f5f9;
+}
+
+.sched-row {
+  display: flex;
+  border-bottom: 1px solid #f1f5f9;
+  min-height: 74px;
+}
+
+.sched-row:last-child { border-bottom: none; }
+
+.sched-vehicle-cell {
+  width: 240px;
+  flex-shrink: 0;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-right: 1px solid var(--border);
+  background: #fff;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.sched-vehicle-cell:hover { background: #f8fafc; }
+
+.sched-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #f1f5f9;
+  background-size: cover;
+  background-position: center;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.sched-track {
+  flex: 1;
+  position: relative;
+  display: grid;
+  background: #fff;
+}
+
+.sched-cell-bg {
+  border-right: 1px solid #f1f5f9;
+  cursor: pointer;
+}
+
+.sched-cell-bg:hover { background: #f8fafc; }
+
+.sched-bar {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  border-radius: 8px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+  z-index: 1;
+}
+
+.sched-bar.active { background: #d97706; }
+.sched-bar.upcoming { background: #16a34a; }
+.sched-bar.completed { background: #64748b; }
+
+/* ============================================================
+   ENTERPRISE UPGRADES: Animations, Scrollbars & Mobile
    ============================================================ */
 
 /* 1. Sleek Custom Scrollbars */
@@ -815,18 +1092,302 @@ h1 {
   animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* 3. Asset Card Micro-Interactions (Hover Lift) */
-.asset-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+/* ============================================================
+   STATISTICS (VEHICLE WORKLOAD) VIEW
+   ============================================================ */
+.wl-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 22px;
 }
-.asset-card:hover {
-  transform: translateY(-4px) !important;
-  box-shadow: 0 12px 24px rgba(0,0,0,0.08) !important;
+.wl-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #0d9488;
+  text-transform: uppercase;
+}
+.wl-title {
+  margin: 2px 0 4px;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-main);
 }
 
-/* 4. Mobile Responsiveness (Smart Overrides) */
+.wl-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.wl-kpi-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 6px rgba(12, 26, 48, 0.02);
+}
+.wl-kpi-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.wl-ico-teal { background: #f0fdfa; color: #0d9488; border-color: #ccfbf1; }
+.wl-ico-blue { background: #eef2ff; color: #4f46e5; border-color: #e0e7ff; }
+.wl-ico-cyan { background: #ecfeff; color: #0891b2; border-color: #cffafe; }
+.wl-ico-amber { background: #fffbeb; color: #d97706; border-color: #fef3c7; }
+
+.wl-kpi-val { font-size: 24px; font-weight: 800; color: var(--text-main); line-height: 1.1; }
+.wl-kpi-label { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-top: 3px; }
+.wl-kpi-sub { font-size: 11px; color: #94a3b8; margin-top: 4px; font-weight: 600; }
+.wl-sub-green { color: #0d9488; }
+
+.wl-main-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+.wl-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 2px 6px rgba(12, 26, 48, 0.02);
+}
+.wl-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+}
+.wl-card-title { font-size: 18px; font-weight: 800; color: var(--text-main); margin-top: 2px; }
+.wl-legend-dot { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
+.wl-bars-list { display: flex; flex-direction: column; gap: 18px; }
+.wl-bar-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 56px;
+  align-items: center;
+  gap: 16px;
+}
+.wl-bar-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wl-bar-track {
+  height: 12px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.wl-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0d9488, #007cc2);
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+.wl-bar-hrs {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: right;
+}
+
+.wl-donut-wrap {
+  position: relative;
+  height: 180px;
+  width: 180px;
+  margin: 0 auto 24px;
+}
+.wl-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.wl-donut-num { font-size: 26px; font-weight: 800; color: var(--text-main); line-height: 1; }
+.wl-donut-lbl { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.6px; margin-top: 4px; }
+
+.wl-status-list { display: flex; flex-direction: column; gap: 12px; }
+.wl-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.wl-status-row strong { color: var(--text-main); font-weight: 800; }
+.wl-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+@media (max-width: 1024px) {
+  .wl-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .wl-main-grid { grid-template-columns: 1fr; }
+}
+/* ============================================================
+   EXECUTIVE STICKY PAGE HEADER & LIVE DATE METADATA
+   ============================================================ */
+.topbar,
+.wl-header,
+#view-schedule > div:first-child {
+  position: sticky;
+  top: -32px;
+  z-index: 25;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  margin: -32px -32px 28px -32px !important;
+  padding: 20px 32px 18px 32px;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(12, 26, 48, 0.04);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.topbar > div:first-child,
+.wl-header > div:first-child,
+#view-schedule > div:first-child {
+  border-left: 4px solid var(--primary);
+  padding-left: 14px;
+}
+
+/* ============================================================
+   VEHICLES PAGE: UNIFIED FROZEN HEADER + FILTER BAR
+   ============================================================ */
+.assets-sticky-head {
+  position: sticky;
+  top: -32px;
+  z-index: 25;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  margin: -32px -32px 24px -32px;
+  padding: 18px 32px 14px 32px;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(12, 26, 48, 0.04);
+}
+
+/* Remove duplicate sticky/shadow from the inner topbar */
+.assets-sticky-head .topbar {
+  position: static;
+  margin: 0 0 14px 0 !important;
+  padding: 0 0 12px 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.assets-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.assets-type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
+
+.assets-view-toggle {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+/* Keep Schedule's standalone header container clean */
+#view-schedule > div:first-child {
+  display: block;
+  border-left: none;
+  padding-left: 32px;
+}
+#view-schedule > div:first-child h1 {
+  border-left: 4px solid var(--primary);
+  padding-left: 12px;
+}
+
+.topbar h1,
+.wl-header h1,
+#view-schedule > div:first-child h1 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+  margin: 2px 0 4px 0;
+}
+
+.page-date-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.page-date-badge .date-org {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.page-date-badge .date-sep {
+  color: #cbd5e1;
+}
+
+.page-date-badge .date-pill {
+  background: #f1f5f9;
+  color: var(--text-main);
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.1px;
+}
+
+
+/* 3. Mobile Responsiveness (Smart Overrides) */
 @media (max-width: 768px) {
-  /* Fix Modals to fit phone screens */
   .modal-box {
     width: 95vw !important;
     padding: 16px !important;
@@ -835,13 +1396,11 @@ h1 {
     overflow-y: auto;
   }
 
-  /* Stack the 2-Column Vehicle Detail Modal into 1 Column */
   #detail-body > div {
     grid-template-columns: 1fr !important;
     gap: 20px !important;
   }
-  
-  /* Convert the vertical border into a horizontal separator on mobile */
+
   #detail-body > div > div:nth-child(2) {
     border-left: none !important;
     padding-left: 0 !important;
@@ -849,16 +1408,15 @@ h1 {
     padding-top: 24px;
   }
 
-  /* Stack the Dashboard stats */
   .stats, .grid-2 {
     grid-template-columns: 1fr !important;
   }
-  
-  /* Stack the Asset List View mode */
+
   #asset-grid > div > div:nth-child(2) {
     grid-template-columns: 1fr !important;
     gap: 8px !important;
   }
+
   #asset-grid > div {
     flex-direction: column;
     align-items: flex-start !important;
