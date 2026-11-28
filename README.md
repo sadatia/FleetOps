@@ -1,51 +1,75 @@
-# 🚜 FleetOps: Heavy Vehicle Reservation & Safety Inspection System
+# FleetOps — Site Vehicle Control & Safety Inspection System
 
-FleetOps is an enterprise-grade, mobile-responsive web application designed to manage, track, and maintain heavy vehicle fleets (Dump Trucks, Excavators, Cranes, etc.). It features real-time GPS tracking, role-based access control, scannable QR security, and multi-year chronological safety inspection logs.
+**Version:** `2.0.3`  
+**Project Site:** MPDP PTJV — Moheshkhali  
 
-## ✨ Core Features
+FleetOps is a real-time construction fleet management, equipment reservation, and pre-mobilization safety compliance platform built for field engineers, safety officers, and site managers.
 
-* **📡 Real-Time GPS Tracking & Live Map:** Interactive fleet map powered by Leaflet and OpenStreetMap. Features auto-zoom, reverse geocoding to resolve street/zone names, and a floating HUD for live fleet availability counts.
-* **🛡️ Advanced Safety Compliance:** Multi-year chronological safety inspection logs. Supports Conditional clearings, automated expiry tracking, and built-in PDF rendering for official safety certificates.
-* **📱 Deep-Linked QR Security:** Every vehicle generates a unique high-res QR code. Field Engineers and Guests can scan the machine with their mobile device to instantly update live GPS coordinates and view public specs, while being securely locked out of the administrative dashboard.
-* **📅 Smart Reservation Engine:** Prevent booking conflicts with timezone-aware scheduling. Instantly see operator names, booking purposes, and active/upcoming alerts directly on vehicle profiles and the interactive calendar.
-* **📸 Native Mobile Integration:** Use a smartphone camera to directly snap and upload vehicle profile photos to the system.
-* **📋 Master System Activity Logs:** Color-coded, searchable audit trails tracking all creations, updates, and deletions across the application.
+---
 
-## 🛠️ Technology Stack
+## Key Features
 
-**Frontend:**
-* Vanilla HTML5, CSS3, JavaScript (No heavy frameworks, highly optimized)
-* **Leaflet.js** (Live Maps & Tracking)
-* **Chart.js** (Dashboard Analytics)
-* **QRCode.js** (Dynamic QR Generation)
-* **Socket.io-client** (Real-time UI synchronization)
+### Fleet & Asset Management
+* **Grid & List Views:** Browse all site vehicles with live status badges (`Available`, `In Use`, `Maintenance`), dynamic vehicle-type filter chips, and instant search.
+* **Vehicle Detail Specs:** View photos, registration details (Owner, Brand, Serial/Engine No., Mfg. Year), active bookings, safety inspection history, and compact quick-action controls (`Reserve`, `Maintenance`, `Edit`, `Delete`).
+* **High-Res QR Codes:** Generate and download print-ready (1024×1024) QR stickers for every machine.
 
-**Backend:**
-* **Node.js & Express.js** (Core API & Server)
-* **PostgreSQL** (Relational Database)
-* **Socket.io** (Real-time bidirectional event-based communication)
+### Dispatch & Booking
+* **Interactive Schedule:** Multi-range Gantt timeline (`Day`, `Week`, `Month`, `3M`, `6M`, `12M`) with color-coded vehicles and one-click slot booking.
+* **Smart Reservations:** Real-time booking overlap warnings, operator name autocomplete (`<datalist>`), and automatic double-booking prevention on the server.
+* **Monthly Calendar:** Visual monthly overview of past, active, and upcoming equipment allocations.
 
-## 🔐 Role-Based Access Control (RBAC)
+### Safety Inspections & Compliance
+* **All-Vehicles Register:** Track every asset's compliance status (`Valid`, `Due Soon`, `Expired`, `No Record`) with status filter chips, search, and a sticky header.
+* **Live Sidebar Alert Badge:** Displays a real-time red counter next to **Safety Inspection** whenever vehicles are expired or due within 30 days.
+* **PDF Certificates & Renewals:** Upload inspection reports and view them directly inside the in-app PDF viewer, with one-click annual renewal workflows.
 
-FleetOps utilizes strict permissions to ensure data integrity and operational security:
+### Mobile QR Equipment Pass & Live Map
+* **Public Equipment Pass:** Scanning any vehicle QR code opens a branded mobile pass showing live status, specs, and safety clearance—no login required for read-only checks.
+* **Public GPS Sync:** Mobile QR scans automatically sync vehicle coordinates and reverse-geocoded zone names to the Live Map (requires HTTPS).
+* **Live Fleet Map:** Real-time Leaflet satellite map featuring custom Moheshkhali site boundary overlays (**Area A**, **Area B**, **Access Road**) and a live status HUD.
 
-* **👑 Site Manager:** Full administrative control. Can add/delete vehicles, manage users, edit safety logs, view master activity audits, and override reservations.
-* **🛡️ Safety Team:** Dedicated to compliance. Can perform annual renewals, update vehicle safety statuses, and upload inspection PDFs.
-* **👷 Field Engineer:** Operational focus. Can reserve available machines, scan QR codes to sync live GPS locations, and view the interactive calendar.
-* **👤 Guest (Locked Mode):** Unauthenticated users who scan a QR code are trapped in a read-only spec view and cannot navigate to the main application.
+### Analytics & Administration
+* **Vehicle Workload Statistics:** Monthly fleet utilization percentage, booked hours by vehicle type, average duration, and request status doughnut charts.
+* **Usage Reports:** Printable PDF expenditure and utilization summaries per machine.
+* **User Management & Audit Logs:** Manage staff accounts and review a searchable master audit trail of all site operations.
 
-## 🚀 Getting Started (Local Development)
+---
+
+## Security & Hardening
+
+* **Role-Based Access Control (RBAC):** Server-side middleware enforces permissions across three roles:
+  * `site_manager` — Full access (fleet CRUD, users, logs, reports, bookings, inspections).
+  * `field_engineer` — Reservations, schedule, calendar, live map, QR scan, statistics.
+  * `safety_team` — Safety inspections and compliance renewals.
+* **Rate Limiting:** Brute-force protection on `/api/auth/login` (10 attempts / 15 min), general API throttling, and public GPS rate limiting (15 updates / 10 min).
+* **GPS Geofence & Cooldown:** Public QR GPS updates are restricted to a **15 km radius** around the Moheshkhali project site with a **2-minute per-asset cooldown** to prevent off-site spoofing.
+* **Input & Upload Protection:** Zod schema validation on API payloads, `helmet` security headers, XSS escaping on dynamic UI rendering, and Multer file-type/size restrictions (`JPG`, `PNG`, `WEBP`, `PDF`, max 10 MB).
+
+---
+
+## Tech Stack
+
+* **Backend:** Node.js, Express, PostgreSQL (`pg`), Socket.IO, JWT, `bcrypt`, `multer`, `zod`, `helmet`, `express-rate-limit`
+* **Frontend:** Vanilla JavaScript, HTML5, CSS3, Leaflet.js, Chart.js, QRCode.js
+
+---
+
+## Getting Started
 
 ### 1. Prerequisites
-* [Node.js](https://nodejs.org/) (v16 or higher)
-* [PostgreSQL](https://www.postgresql.org/) (running locally)
+* Node.js (v18+ recommended)
+* PostgreSQL database
 
 ### 2. Installation
-Clone the repository and install dependencies:
 ```bash
-git clone [https://github.com/sadatia/FleetOps.git](https://github.com/sadatia/FleetOps.git)
-cd FleetOps
+git clone <your-repo-url>
+cd fleetops-backend
 npm install
+
+
+
+
 
 ### 3. Database Setup
 Ensure PostgreSQL is running, create a database named fleetops, and execute the initial schema (you may need to create a schema.sql based on your setup).
@@ -53,12 +77,9 @@ Ensure PostgreSQL is running, create a database named fleetops, and execute the 
 Create a .env file in the root directory and add your credentials:
 
 Code snippet
-DB_USER=your_postgres_username
-DB_PASSWORD=your_postgres_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=fleetops
-PORT=3000
+PORT=5055
+DATABASE_URL=postgres://user:password@localhost:5432/fleetops
+JWT_SECRET=your_secure_jwt_secret
 
 
 ###  4. Run the Application
