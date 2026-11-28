@@ -1330,26 +1330,31 @@ function showDetail(id) {
   let reserveBtn = '';
   if (canReserve) {
     reserveBtn = a.status === 'maintenance'
-      ? `<button class="btn btn-ghost" style="width:100%; padding:14px; font-size:14px; font-weight:600; border-radius:8px; margin-bottom:12px; border:1px solid var(--border); color:var(--text-muted); cursor:not-allowed;" disabled>🔧 Unavailable (Under Maintenance)</button>`
-      : `<button class="btn btn-primary" style="width:100%; padding:14px; font-size:15px; font-weight:600; border-radius:8px; margin-bottom:12px; box-shadow: 0 4px 6px rgba(14, 165, 233, 0.2); display:flex; justify-content:center; align-items:center; gap:6px;" onclick="closeModal('modal-detail');openReserveFor('${esc(a.id)}')">➕ Reserve This Vehicle</button>`;
+      ? `<button class="btn btn-ghost detail-btn-primary" style="border:1px solid var(--border); color:var(--text-muted); cursor:not-allowed;" disabled>🔧 Unavailable (Maintenance)</button>`
+      : `<button class="btn btn-primary detail-btn-primary" onclick="closeModal('modal-detail');openReserveFor('${esc(a.id)}')">+ Reserve Vehicle</button>`;
   }
 
   let maintenanceBtnHtml = '';
   if (canEdit) {
     if (a.status === 'maintenance') {
-      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--green); color: var(--green); background: #f0fdf4; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="toggleMaintenance('${esc(a.id)}', 'available')">✅ Mark Available</button>`;
+      maintenanceBtnHtml = `<button class="btn" style="background:#f0fdf4; color:var(--green); border:1px solid var(--green);" onclick="toggleMaintenance('${esc(a.id)}', 'available')">✅ Available</button>`;
     } else if (a.status === 'available') {
-      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid #f59e0b; color: #d97706; background: #fffbeb; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="toggleMaintenance('${esc(a.id)}', 'maintenance')">🔧 Maintenance</button>`;
+      maintenanceBtnHtml = `<button class="btn detail-btn-maint" onclick="toggleMaintenance('${esc(a.id)}', 'maintenance')">🔧 Maintenance</button>`;
     } else if (a.status === 'in-use') {
-      maintenanceBtnHtml = `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--border); color: var(--text-muted); cursor:not-allowed; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" disabled>🔒 In Use</button>`;
+      maintenanceBtnHtml = `<button class="btn" style="background:#f8fafc; color:var(--text-muted); border:1px solid var(--border); cursor:not-allowed;" disabled>🔒 In Use</button>`;
     }
   }
 
-  const editBtnHtml = canEdit ? `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid var(--border); color: var(--primary); font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="openEditAssetModal('${esc(a.id)}')">✏️ Edit Specs</button>` : '';
-  const deleteBtnHtml = canEdit ? `<button class="btn btn-ghost" style="width:100%; padding:12px 0; border-radius:8px; border: 1px solid #fecaca; color: var(--red); background: #fef2f2; font-weight:600; display:flex; justify-content:center; align-items:center; gap:6px; box-sizing:border-box;" onclick="deleteAsset('${esc(a.id)}')">🗑️ Delete</button>` : '';
+  const editBtnHtml = canEdit
+    ? `<button class="btn detail-btn-edit" onclick="openEditAssetModal('${esc(a.id)}')">✏️ Edit</button>`
+    : '';
+  const deleteBtnHtml = canEdit
+    ? `<button class="btn detail-btn-del" onclick="deleteAsset('${esc(a.id)}')" title="Delete Vehicle">🗑️</button>`
+    : '';
 
-  const secBtns = [maintenanceBtnHtml, editBtnHtml, deleteBtnHtml].filter(b => b !== '');
-  const actionGrid = secBtns.length > 0 ? `<div style="display:flex; flex-wrap:wrap; gap:8px;">${secBtns.map(btn => `<div style="flex: 1 1 calc(50% - 8px); min-width: 120px;">${btn}</div>`).join('')}</div>` : '';
+  const actionGrid = canEdit
+    ? `<div class="detail-actions-row">${maintenanceBtnHtml}${editBtnHtml}${deleteBtnHtml}</div>`
+    : '';
 
   let historyHtml = '';
   if (assetHistory.length > 0) {
@@ -1415,7 +1420,7 @@ function showDetail(id) {
           <div style="font-size: 11px; color: var(--text-muted); font-weight: 800; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Safety Inspection Log</div>
           ${historyHtml}
         </div>
-        <div style="margin-top:auto; padding-top:16px; border-top: 1px solid var(--border);">
+        <div class="detail-actions" style="margin-top:auto;">
           ${reserveBtn}
           ${actionGrid}
         </div>
