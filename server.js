@@ -17,7 +17,41 @@ const { authenticateToken } = require('./middleware');
 
 const app = express();
 
-// Security headers (CSP disabled so inline Leaflet/Chart.js/QR scripts keep working)
+// 1. Brute-force protection for login (max 10 attempts per 15 min per IP)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' }
+});
+
+// 2. Rate limiter for public QR GPS sync (max 15 updates per 10 min per IP)
+const publicGpsLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many GPS updates. Please wait a few minutes.' }
+});
+
+// 3. Geofence distance helper (Haversine formula in km)
+const SITE_CENTER = { lat: 21.692153, lon: 91.867748 }; // Moheshkhali project site
+const SITE_RADIUS_KM = 15; // Rejects coordinates outside 15 km of the site
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const toRad = d => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+
+// Security headers & CORS first
 app.use(helmet({
   contentSecurityPolicy: false,
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
@@ -29,6 +63,8 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
 // Rate limiters
+app.use('/api/auth/login', loginLimiter);
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
@@ -41,7 +77,6 @@ const strictLimiter = rateLimit({
   max: 20,
   message: { error: 'Rate limit exceeded. Try again later.' }
 });
-app.use('/api/auth/login', strictLimiter);
 
 // --- ZOD VALIDATION ---
 const validate = (schema) => (req, res, next) => {
@@ -186,18 +221,41 @@ app.get('/api/public/assets/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // Public QR Scan GPS Sync (No login required)
-app.put('/api/public/assets/:id/location', async (req, res) => {
+const lastGpsSync = new Map(); // Per-asset cooldown tracker
+
+app.put('/api/public/assets/:id/location', publicGpsLimiter, async (req, res) => {
   try {
+    const assetId = req.params.id;
     const { latitude, longitude, locationName } = req.body;
-    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+
+    // 1. Validate coordinates
+    if (
+      typeof latitude !== 'number' || typeof longitude !== 'number' ||
+      latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180
+    ) {
       return res.status(400).json({ error: 'Invalid coordinates' });
     }
 
-    // Update using the same DB call as your existing /api/assets/:id/location route
+    // 2. Geofence check (block off-site scans)
+    const dist = distanceKm(latitude, longitude, SITE_CENTER.lat, SITE_CENTER.lon);
+    if (dist > SITE_RADIUS_KM) {
+      return res.status(403).json({ error: `Outside project site geofence (${dist.toFixed(1)} km away)` });
+    }
+
+    // 3. Per-asset cooldown (max 1 public update per vehicle every 2 minutes)
+    const now = Date.now();
+    const last = lastGpsSync.get(assetId) || 0;
+    if (now - last < 2 * 60 * 1000) {
+      return res.status(429).json({ error: 'Location was just synced. Try again shortly.' });
+    }
+    lastGpsSync.set(assetId, now);
+
+    // 4. Update DB (match your existing query syntax)
     await db.query(
       'UPDATE assets SET latitude = $1, longitude = $2, current_location = $3 WHERE id = $4',
-      [latitude, longitude, locationName || 'Field Scanned Zone', req.params.id]
+      [latitude, longitude, String(locationName || 'Field Scanned Zone').slice(0, 100), assetId]
     );
 
     io.emit('fleetUpdate');

@@ -32,7 +32,13 @@
      <nav class="nav">
         <a class="nav-item active" data-view="dashboard"><span class="nav-ico">▣</span> Dashboard</a>
         <a class="nav-item" data-view="assets"><span class="nav-ico">⚙</span> Vehicles</a>
-        <a class="nav-item" data-view="inspections"><span class="nav-ico">🛡️</span> Safety Inspection</a>
+       
+        <a class="nav-item" data-view="inspections">
+            <span class="nav-ico">🛡️</span> Safety Inspection
+            <span id="nav-insp-badge" class="nav-badge hidden">0</span>
+          </a>
+
+
         <a class="nav-item" data-view="schedule"><span class="nav-ico">🗓️</span> Schedule</a>
         <a class="nav-item" data-view="reservations"><span class="nav-ico">▦</span> Reservations</a>
         <a class="nav-item" data-view="calendar"><span class="nav-ico">▤</span> Calendar</a>
@@ -461,8 +467,36 @@
       </div>
       
       
-      <div class="modal hidden" id="modal-reserve"><div class="modal-box"><div class="modal-head"><h2>Allocation</h2><button class="x" onclick="closeModal('modal-reserve')">✕</button></div><form id="form-reserve" class="form"><label>Machine ID <select name="vehicle" required></select></label><div class="form-row"><label>Operator <input name="operator" required /></label><label>Phone <input name="phone" /></label></div><div class="form-row"><label>Start <input type="datetime-local" name="start" required /></label><label>End <input type="datetime-local" name="end" required /></label></div><label>Purpose <input name="purpose" required /></label><div class="modal-foot"><button type="submit" class="btn btn-primary">Save Reservation</button></div></form></div></div>
-      
+        <div class="modal hidden" id="modal-reserve">
+          <div class="modal-box">
+            <div class="modal-head">
+              <h2>Allocation</h2>
+              <button class="x" onclick="closeModal('modal-reserve')">✕</button>
+            </div>
+            <form id="form-reserve" class="form">
+              <label>Machine ID <select name="vehicle" required></select></label>
+              <div class="form-row">
+                <label>Operator
+                  <input name="operator" list="operator-suggestions" autocomplete="off" required />
+                  <datalist id="operator-suggestions"></datalist>
+                </label>
+                <label>Phone <input name="phone" /></label>
+              </div>
+              <div class="form-row">
+                <label>Start <input type="datetime-local" name="start" required /></label>
+                <label>End <input type="datetime-local" name="end" required /></label>
+              </div>
+              <label>Purpose <input name="purpose" required /></label>
+
+              <!-- Live Overlap Warning Banner -->
+              <div id="res-conflict-alert" class="res-conflict-warn hidden"></div>
+
+              <div class="modal-foot">
+                <button type="submit" class="btn btn-primary">Save Reservation</button>
+              </div>
+            </form>
+          </div>
+        </div>      
       <!-- 🌟 EXPANDED: MULTI-COLUMN VEHICLE DETAIL MODAL -->
       <div class="modal hidden" id="modal-detail">
         <div class="modal-box" style="width: 900px; max-width: 95vw;">

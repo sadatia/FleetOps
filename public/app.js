@@ -83,7 +83,7 @@ async function load() {
       if (uRes.ok) usersList = await uRes.json();
       if (logRes.ok) activityLogs = await logRes.json();
     }
-
+    
     renderAll();
     renderReservations();
     renderCalendar();
@@ -1435,7 +1435,36 @@ function openModal(id) { $('#' + id).classList.remove('hidden'); }
 function closeModal(id) { $('#' + id).classList.add('hidden'); }
 let toastTimer;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 2600); }
-function renderAll() { renderDashboard(); renderAssets(); }
+
+function updateSafetyBadge() {
+  const badge = $('#nav-insp-badge');
+  if (!badge) return;
+
+  let expired = 0, dueSoon = 0;
+  const today = new Date();
+  assets.forEach(a => {
+    const { latest } = getLatestInspection(a.id);
+    if (!latest) return;
+    const days = Math.ceil((new Date(latest.next_annual_due) - today) / 86400000);
+    if (days < 0 || latest.status === 'Rejected') expired++;
+    else if (days <= 30) dueSoon++;
+  });
+
+  const totalAlerts = expired + dueSoon;
+  if (totalAlerts > 0) {
+    badge.textContent = totalAlerts;
+    badge.title = `${expired} Expired, ${dueSoon} Due Soon`;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function renderAll() {
+  renderDashboard();
+  renderAssets();
+  updateSafetyBadge();
+}
 
 function checkAuthSession() {
   const t = localStorage.getItem('fo_token'), u = localStorage.getItem('fo_user');
@@ -1518,6 +1547,56 @@ if ($('#btn-logout')) {
   });
 }
 
+function populateOperatorList() {
+  const dl = $('#operator-suggestions');
+  if (!dl) return;
+  const names = [...new Set(
+    reservations.map(r => (r.operatorName || '').trim()).filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+  dl.innerHTML = names.map(n => `<option value="${esc(n)}"></option>`).join('');
+}
+
+function findReservationConflict(assetId, startVal, endVal, excludeId = null) {
+  if (!assetId || !startVal || !endVal) return null;
+  const newStart = new Date(startVal).getTime();
+  const newEnd = new Date(endVal).getTime();
+  if (isNaN(newStart) || isNaN(newEnd)) return null;
+
+  return reservations.find(r => {
+    if (String(r.assetId) !== String(assetId)) return false;
+    if (excludeId && String(r.id) === String(excludeId)) return false;
+    const s = new Date(r.startTime).getTime();
+    const e = new Date(r.endTime).getTime();
+    return newStart < e && newEnd > s;
+  }) || null;
+}
+
+function checkReservationConflictUI() {
+  const alertBox = $('#res-conflict-alert');
+  if (!alertBox) return null;
+
+  const assetId = $('#form-reserve [name=vehicle]')?.value;
+  const startVal = $('#form-reserve [name=start]')?.value;
+  const endVal = $('#form-reserve [name=end]')?.value;
+
+  if (startVal && endVal && new Date(endVal) <= new Date(startVal)) {
+    alertBox.innerHTML = '⚠️ End time must be after the start time.';
+    alertBox.classList.remove('hidden');
+    return 'INVALID_RANGE';
+  }
+
+  const conflict = findReservationConflict(assetId, startVal, endVal, currentEditingReservationId);
+  if (conflict) {
+    alertBox.innerHTML = `⚠️ <strong>Booking Overlap Detected:</strong> Already reserved by <strong>${esc(conflict.operatorName)}</strong> from ${fmtDate(conflict.startTime)} to ${fmtDate(conflict.endTime)}.`;
+    alertBox.classList.remove('hidden');
+    return conflict;
+  }
+
+  alertBox.classList.add('hidden');
+  alertBox.innerHTML = '';
+  return null;
+}
+
 window.openReserveFor = function(id) {
   currentEditingReservationId = null;
   const form = $('#form-reserve');
@@ -1538,7 +1617,8 @@ window.openReserveFor = function(id) {
 
   if ($('#form-reserve [name=start]')) $('#form-reserve [name=start]').value = localStart;
   if ($('#form-reserve [name=end]')) $('#form-reserve [name=end]').value = localEnd;
-
+  populateOperatorList();
+checkReservationConflictUI();
   openModal('modal-reserve');
 };
 
@@ -1563,7 +1643,8 @@ window.openEditReservation = function(id) {
   const tzOffset = new Date().getTimezoneOffset() * 60000;
   if ($('#form-reserve [name=start]')) $('#form-reserve [name=start]').value = new Date(new Date(r.startTime).getTime() - tzOffset).toISOString().slice(0, 16);
   if ($('#form-reserve [name=end]')) $('#form-reserve [name=end]').value = new Date(new Date(r.endTime).getTime() - tzOffset).toISOString().slice(0, 16);
-
+  populateOperatorList();
+checkReservationConflictUI();
   openModal('modal-reserve');
 };
 
@@ -1580,6 +1661,16 @@ window.deleteReservation = async function(id) {
 if ($('#form-reserve')) {
   $('#form-reserve').addEventListener('submit', async e => {
     e.preventDefault();
+    const conflictCheck = checkReservationConflictUI();
+if (conflictCheck === 'INVALID_RANGE') {
+  return toast('⚠️ End time must be after start time.');
+}
+if (conflictCheck) {
+  const proceed = confirm(
+    `⚠️ OVERLAP WARNING:\nThis vehicle is already booked by ${conflictCheck.operatorName} (${fmtDate(conflictCheck.startTime)} – ${fmtDate(conflictCheck.endTime)}).\n\nSave anyway?`
+  );
+  if (!proceed) return;
+}
     const f = new FormData(e.target);
     const p = {
       assetId: f.get('vehicle'),
@@ -1702,6 +1793,11 @@ function wire() {
     inspFilter = c.dataset.ifilter;
     renderInspections();
   }));
+
+  ['vehicle', 'start', 'end'].forEach(field => {
+  const el = $(`#form-reserve [name=${field}]`);
+  if (el) el.addEventListener('change', checkReservationConflictUI);
+});
 }
 
 const socket = io();
